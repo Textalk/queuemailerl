@@ -1,0 +1,11 @@
+{application, queuemailerl, [
+    {description, "Deliver emails from RabbitMQ to multiple SMTP servers"},
+    {vsn, "0.1.0"},
+    {modules, [queuemailerl]},
+    {mod, {queuemailerl, []}},
+    {registered, [queuemailerl]},
+    {applications, [
+        kernel,
+        stdlib
+    ]}
+]}.
