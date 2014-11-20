@@ -8,13 +8,13 @@ Status: Planning.
 Modus operandi
 --------------
 
-# A message arrives on the message queue;
-# the process is spawned to send the email to the SMTP server;
-# on failure, the process waits a certain time (longer each time) and retries;
-# after the maximum number of retries, a message is sent to the error reporting
-  address using the error reporting SMTP settings;
-# the message from the message queue is acknowledged i.e. removed from the
-  message queue.
+1. A message arrives on the message queue;
+2. the process is spawned to send the email to the SMTP server;
+3. on failure, the process waits a certain time (longer each time) and retries;
+4. after the maximum number of retries, a message is sent to the error reporting
+   address using the error reporting SMTP settings;
+5. the message from the message queue is acknowledged i.e. removed from the
+   message queue.
 
 Queue message format
 --------------------
@@ -24,10 +24,10 @@ error reporting email address. It is formatted as a JSON object on the form:
 
 ```JSON
 {"email": "The full email including headers",
- "relay", "SMTP server hostname or IP; defaults to localhost",
+ "relay": "SMTP server hostname or IP; defaults to localhost",
  "port": "SMTP port; defaults to (default SMTP port)",
- "username", "SMTP username (optional)",
- "password", "SMTP password (optional)",
+ "username": "SMTP username (optional)",
+ "password": "SMTP password (optional)",
  "ssl": true,
  "error-to": "email-administrator@example.com",
  "error-subject": "Subject in error report email",
