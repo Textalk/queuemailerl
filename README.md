@@ -10,10 +10,10 @@ Modus operandi
 
 1. A message arrives on the message queue;
 2. the process is spawned to send the email to the SMTP server;
-3. on failure, the process waits a certain time (longer each time) and retries;
-4. after the maximum number of retries, a message is sent to the error reporting
-   address using the error reporting SMTP settings;
-5. the message from the message queue is acknowledged i.e. removed from the
+  * on failure, the process waits a certain time (longer each time) and retries;
+  * after the maximum number of retries, a message is sent to the error reporting
+    address using the error reporting SMTP settings;
+3. the message from the message queue is acknowledged i.e. removed from the
    message queue.
 
 Queue message format
