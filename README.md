@@ -23,29 +23,33 @@ The queued message contains an email and the full SMTP settings along with an
 error reporting email address. It is formatted as a JSON object on the form:
 
 ```JSON
-{"from": "\"Alice\" <alice@example.com>",
- "to": ["\"Bob\" <bob@example.com>"],
- "cc": [],
- "bcc": [],
- "headers": {"Subject", "hello",
-             "Reply-To": "\"John\" <john@example.com>"},
- "body": "Dear Bob,\n\nI just want to say hello.\n\nYour friend,\n\nAlice",
- "relay": "localhost",
- "port": 23,
- "username": "alice",
- "password": "d9Jeaoid9%ud4",
- "error-to": "email-administrator@example.com",
- "error-subject": "Subject in error report email",
- "error-body": "The message to be sent to error-to in event of error"}
+{"mail": {"from": "\"Alice\" <alice@example.com>",
+          "to": ["\"Bob\" <bob@example.com>"],
+          "cc": [],
+          "bcc": [],
+          "extra-headers": {"Subject": "hello",
+                            "Reply-To": "\"John\" <john@example.com>"},
+          "body": "Dear Bob,\n\nI just want to say hello.\n\nAlice"},
+ "smtp": {"relay": "localhost",
+          "port": 25,
+          "username": "alice",
+          "password": "d9Jeaoid9%ud4"},
+ "error": {"to": "email-administrator@example.com",
+           "subject": "Subject in error report mail",
+           "body": "The message to be sent in the event of error"}}
 ```
+
+`"from"` is mandatory as is everything in `"error"`. Everything else is
+optional.
 
 Error handling
 --------------
 
-*In the event of error* the `"error-body"` is sent to `"error-to"` with the
-subject `"error-subject"` and the failing email attatched. If there is any
+*In the event of error* the subproperties of `"error"` are used. An email with
+the contents of `"body"` is sent to `"to"` with the
+subject `"subject"` and the failing email attatched. If there is any
 useful information about what went wrong, this is appended to
-`"error-body"`. The error message should be a plain text string in UTF-8.
+`"body"`. The error message should be a plain text string in UTF-8.
 
 Typical errors:
 
