@@ -2,6 +2,7 @@
 -module(queuemailerl_event).
 
 -export([parse/1, build_mail/1, get_smtp_options/1]).
+-export_type([event/0]).
 
 -record(mail, {from, to, cc, bcc, headers, body}).
 -record(smtp, {relay, port, username, password}).
@@ -20,27 +21,22 @@ parse(RawEvent) ->
 
 %% @doc Returns a triple that can as the first argument to
 %% gen_smtp_client:send/2,1 and gen_smtp_client:send_blocking/2.
+%%
+%% TODO: Convert all headers to header-case using to_header_case/1.
+%% TODO: Add a Date header if not preset.
 -spec build_mail(event()) ->
     {MailFrom :: binary(), RcptTo :: [binary()], Email :: iodata()}.
 build_mail(#event{mail = #mail{from = From, to = To, cc = Cc, bcc = Bcc,
                                headers = Headers, body = Body}}) ->
-    Headers1 = case Cc of
-        [] -> Headers;
-        _  -> [{<<"Cc">>, join(Cc)}]
-    end,
-    Headers2 = case To of
-        [] -> Headers1;
-        _  -> {[<<"To">>, join(To)}]
-    end,
+    Headers1 = [{<<"Cc">>, join(Cc)} || Cc /= []] ++
+               [{<<"To">>, join(To)} || To /= []] ++
+               Headers,
 
     MailFrom = extract_email_address(From),
     RcptTo   = lists:map(fun extract_email_address/1, To ++ Cc ++ Bcc),
 
-    Head = [[Key, <<": ">>, Value, <<"\r\n">>] || {Key, Value} <- Headers2],
+    Head = [[Key, <<": ">>, Value, <<"\r\n">>] || {Key, Value} <- Headers1],
     Email = [Head, <<"\r\n">>, Body],
-
-    %% TODO: Convert all headers to header-case using to_header_case/1.
-    %% TODO: Add a Date header if not preset.
 
     {MailFrom, RcptTo, Email}.
 
@@ -94,7 +90,7 @@ parse_error_part({Props}) ->
     true = is_binary(Body),
     #error{to = To, subject = Subject, body = Body}.
 
-%% @doc Returns a binary on the form <<"<email@example.com>">>.
+%% @doc Returns a binary on the form `<<"<email@example.com>">>'.
 extract_email_address(Bin) ->
     case re:run(Bin, <<"<(.*@.*)>$">>, [{capture, all_but_first, binary}]) of
         {match, [Email]} ->

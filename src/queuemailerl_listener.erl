@@ -12,6 +12,9 @@
 %% The exchange that the queue is bound to
 -define(EXCHANGE, <<"amq.direct">>).
 
+%% Maximum time to wait when subscribing
+-define(SUBSCRIBE_TIMEOUT, 10000).
+
 -include_lib("amqp_client/include/amqp_client.hrl").
 
 %% --- Public API ---
@@ -20,15 +23,19 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-%% --- Gen_server callbacks ---
-%%
-%% The state of the gen_server is a channel pid only
-%%
+%% +--- Gen_server callbacks -----------------------------+
+%% |                                                      |
+%% |  The state of the gen_server is a channel pid only.  |
+%% |                                                      |
+%% +------------------------------------------------------+
 
 init([]) ->
     %% Queue settings
     {ok, RabbitProps} = application:get_env(queuemailerl, rabbitmq),
     Queue = proplists:get_value(queue, RabbitProps, ?DEFAULT_QUEUE),
+
+    %% We use the same name for the routing key as the queue name
+    RoutingKey = Queue,
 
     %% Get the channel
     ChannelPid = queuemailerl_amqp_mgr:get_channel(),
@@ -60,7 +67,7 @@ handle_call(_Call, _From, _State) ->
 %% @doc When a worker is done, it should cast an {ack, Tag} back to us.
 handle_cast({ack, Tag}, Channel) ->
     Acknowledge = #'basic.ack'{delivery_tag = Tag},
-    amqp_channel:cast(Channel, Acknowledge)
+    amqp_channel:cast(Channel, Acknowledge),
     {noreply, Channel}.
 
 %% @doc Handles incoming messages from RabbitMQ.
@@ -82,7 +89,7 @@ handle_info({#'basic.deliver'{delivery_tag = Tag}, #amqp_msg{payload = Payload}}
             Acknowledge = #'basic.ack'{delivery_tag = Tag},
             amqp_channel:cast(Channel, Acknowledge)
     end,
-    {noreply, State};
+    {noreply, Channel};
 handle_info(Info, State) ->
     %% Some other message to the server pid
     error_logger:info_msg("~p ignoring info ~p", [?MODULE, Info]),

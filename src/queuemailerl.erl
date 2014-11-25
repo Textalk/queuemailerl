@@ -1,4 +1,28 @@
-%% @doc Application and supervisor
+%% @doc This module servers as both application and supervisor.
+%%
+%% The application has the following structure.
+%%
+%% <ul>
+%%   <li>
+%%     `quemailerl': application module and top level `all_for_one' supervisor,
+%%     supervising the following registered processes:
+%%     <ul>
+%%       <li>`queuemailerl_amqp_mgr': A gen_server serving as a wrapper for
+%%           RabbitMQ connection and channel processes</li>
+%%       <li>`queuemailerl_listener': A gen_server subscribing to a RabbitMQ
+%%           queue. When a message arrives and starting
+%%           `queuemailerl_smtp_worker' jobs.</li>
+%%       <li>`queuemailer_smtp_sup': A simple_one_for_one supervisor for
+%%           resilient `queuemailerl_smtp_worker' jobs:
+%%           <ul><li>`queuemailerl_smtp_worker': A gen_server for sending an
+%%                   SMTP email, waiting and retrying and – if all retries
+%%                   fail – sending an error report email.</li></ul></li>
+%%     </ul>
+%%   </li>
+%%   <li>`queuemailerl_event': A module for working with the abstract datatype
+%%       `event()'. It is used for parsing an incoming JSON message and
+%%       information from it.</li>
+%% </ul>
 -module(queuemailerl).
 
 %% public API

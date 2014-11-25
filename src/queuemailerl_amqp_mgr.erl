@@ -2,7 +2,7 @@
 %% stuff in a supervisor friendly way.
 -module(queuemailerl_amqp_mgr).
 
--export([start_link/0]).
+-export([start_link/0, get_channel/0]).
 
 -behaviour(gen_server).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -33,13 +33,10 @@ init([]) ->
         connection_timeout = 60000
     },
 
-    %% We use the queue name as the routing key
-    RoutingKey = Queue,
-
     {ok, ConnectionPid} = amqp_connection:start(AmqpConnParams),
     monitor(process, ConnectionPid),
 
-    {ok, ChannelPid} = amqp_connection:open_channel(Connection),
+    {ok, ChannelPid} = amqp_connection:open_channel(ConnectionPid),
     monitor(process, ChannelPid),
 
     {ok, {ConnectionPid, ChannelPid}}.
@@ -60,7 +57,7 @@ handle_info({'EXIT', _Worker, normal}, State) ->
     %% A channel or connection has finished and exits gracefully.
     %% This is probably part of a shutdown procedure. Do nothing.
     {noreply, State};
-handle_info({'EXIT', Worker, Reason}, State) ->
+handle_info({'EXIT', _Worker, Reason}, State) ->
     %% A worker has died before finishing the job, requeue the event
     %% Stop and let the supervisor restart us.
     error_logger:error_msg("Connection or channel to RabbitMQ died.~nReason: ~p~n", [Reason]),

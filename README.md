@@ -19,7 +19,7 @@ Modus operandi
 Queue message format
 --------------------
 
-**The queued message contains** an email and the full SMTP settings along with an
+The queued message contains an email and the full SMTP settings along with an
 error reporting email address. It is formatted as a JSON object on the form:
 
 ```JSON
@@ -45,7 +45,7 @@ optional.
 Error handling
 --------------
 
-**In the event of error** the subproperties of `"error"` are used. An email with
+In the event of error the subproperties of `"error"` are used. An email with
 the contents of `"body"` is sent to `"to"` with the
 subject `"subject"` and the failing email attatched. If there is any
 useful information about what went wrong, this is appended to
@@ -60,7 +60,7 @@ Typical errors:
 Application settings
 --------------------
 
-**The following `env` settings** exist for the `queuemailerl` application:
+The following `env` settings exist for the `queuemailerl` application:
 
 * `rabbitmq`: a list of RabbitMQ options: `{username, binary()} |
     {password, binary()} | {vhost, binary()} | {host, binary()} |

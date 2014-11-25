@@ -1,6 +1,6 @@
 -module(queuemailerl_smtp_worker).
 
--export([start_link/0]).
+-export([start_link/2]).
 
 -behaviour(gen_server).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -11,7 +11,8 @@
 
 %% @doc The Tag is identifying the message in the RabbitMQ queue so that we can
 %% ack it when we are done.
--spec start_link() -> {ok, pid()} | ignore | {error, term()}.
+-spec start_link(Tag :: term(), Event :: queuemailerl_event:event()) ->
+    {ok, pid()} | ignore | {error, term()}.
 start_link(Tag, Event) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Tag, Event], []).
 
@@ -72,7 +73,7 @@ dispatch_retry(State = #state{retry_count = N}) ->
             send_error_mail(State),
             %% Ack as we have done everything we could.
             gen_server:cast(queuemail_listener, {ack, State#state.tag}),
-            {stop, normal}.
+            {stop, normal}
     end.
 
 send_error_mail(State = #state{mail = Mail, smtp = Smtp}) ->
