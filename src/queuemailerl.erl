@@ -26,7 +26,11 @@ stop(_State) ->
 %% @doc Supervisor callback
 init([]) ->
     Procs = [
-        %{queuemailerl_listener, {queuemailerl_listener, start_link, []},
-        % permanent, 10, worker, dynamic}
+        {queuemailerl_ampq_mgr, {queuemailerl_ampq_mgr, start_link, []},
+         permanent, 10, worker, [queuemailerl_ampq_mgr]},
+        {queuemailerl_listener, {queuemailerl_listener, start_link, []},
+         permanent, 10, worker, [queuemailerl_listener]},
+        {queuemailer_smtp_sup, {queuemailer_smtp_sup, start_link, []},
+         permanent, 10, supervisor, [queuemailer_smtp_sup]}
     ],
-    {ok, {{one_for_one, 10, 10}, Procs}}.
+    {ok, {{one_for_all, 10, 10}, Procs}}.

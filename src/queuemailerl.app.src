@@ -1,11 +1,16 @@
 {application, queuemailerl, [
     {description, "Deliver emails from RabbitMQ to multiple SMTP servers"},
     {vsn, "0.1.0"},
+    {env, [{rabbitmq, []},
+           {retry_count, 10},
+           {retry_initial_delay, 60000},
+           {error_smtp, []}]},
     {modules, [queuemailerl]},
     {mod, {queuemailerl, []}},
     {registered, [queuemailerl]},
-    {applications, [
-        kernel,
-        stdlib
-    ]}
+    {applications, [kernel,
+                    stdlib,
+                    amqp_client,
+                    rabbit_common,
+                    gen_smtp]}
 ]}.
