@@ -72,10 +72,10 @@ parse_smtp_part({Props}) ->
     Port     = proplists:get_value(<<"port">>, Props),
     Username = proplists:get_value(<<"username">>, Props),
     Password = proplists:get_value(<<"password">>, Props),
-    true = is_binary(Relay) or Relay == undefined,
-    true = is_integer(Port) or Port == undefined,
-    true = is_binary(Username) or Username == undefined,
-    true = is_binary(Password) or Password == undefined,
+    true = is_binary(Relay) or (Relay == undefined),
+    true = is_integer(Port) or (Port == undefined),
+    true = is_binary(Username) or (Username == undefined),
+    true = is_binary(Password) or (Password == undefined),
     #smtp{relay = Relay, port = Port, username = Username, password = Password};
 parse_smtp_part(undefined) ->
     %% All default
@@ -113,5 +113,5 @@ to_header_case(Binary) ->
 -spec join([binary()]) -> binary().
 join(Xs) -> join(Xs, <<>>).
 
-join([X], Acc) -> <<Acc/binary, X>>;
+join([X], Acc) -> <<Acc/binary, X/binary>>;
 join([X|Xs], Acc) -> join(Xs, <<Acc/binary, X/binary, ", ">>).

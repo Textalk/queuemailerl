@@ -19,11 +19,10 @@ start_link(Tag, Event) ->
 %% --- Gen_server callbacks ---
 
 init([Tag, Event]) ->
-    Mail = queuemailerl:build_mail(Event),
-    Smtp = queuemailerl:get_smtp_options(Event),
+    Mail = queuemailerl_event:build_mail(Event),
+    Smtp = queuemailerl_event:get_smtp_options(Event),
     State = #state{tag = Tag, mail = Mail, smtp = Smtp},
-    self() ! send,
-    {ok, State}.
+    {ok, State, 0}.
 
 %% @doc There are no recognized gen_server calls.
 handle_call(_Call, _From, _State) ->
@@ -33,7 +32,7 @@ handle_call(_Call, _From, _State) ->
 handle_cast(_Cast, _State) ->
     error(badarg).
 
-handle_info(send, State = #state{mail = Mail, smtp = Smtp}) ->
+handle_info(timeout, State = #state{mail = Mail, smtp = Smtp}) ->
     %% (Re-)try to send the email.
     case gen_smtp_client:send_blocking(Mail, Smtp) of
         Receipt when is_binary(Receipt) ->
@@ -52,7 +51,7 @@ handle_info(Info, State) ->
     error_logger:info_msg("~p ignoring info ~p", [?MODULE, Info]),
     {noreply, State}.
 
-terminate(_Reason, _State) ->
+terminate(Reason, _State) ->
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -61,15 +60,14 @@ code_change(_OldVsn, State, _Extra) ->
 %% -- internal --
 
 %% Return the same as handle_info. Its return value will be used for this.
-dispatch_retry(State = #state{retry_count = N}) ->
+dispatch_retry(State = #state{retry_count = RetryCount}) ->
     {ok, MaxRetries} = application:get_env(queuemailerl, retry_count),
     if
-        N < MaxRetries ->
+        RetryCount < MaxRetries ->
             {ok, InitialDelay} = application:get_env(queuemailerl, retry_initial_delay),
-            Delay = InitialDelay * (1 bsl N),
-            erlang:send_after(Delay, self(), send),
-            {noreply, State#state{retry_count = N + 1}};
-        N >= MaxRetries ->
+            Delay = InitialDelay bsl RetryCount,
+            {noreply, State#state{retry_count = RetryCount + 1}, Delay};
+        RetryCount >= MaxRetries ->
             send_error_mail(State),
             %% Ack as we have done everything we could.
             gen_server:cast(queuemail_listener, {ack, State#state.tag}),

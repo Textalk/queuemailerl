@@ -55,7 +55,7 @@ init([]) ->
         amqp_channel:subscribe(ChannelPid, Subscription, self()),
     receive
         #'basic.consume_ok'{consumer_tag = Tag} ->
-            ChannelPid %% The state is a channel pid only
+            {ok, ChannelPid} %% The state is a channel pid only
     after
         ?SUBSCRIBE_TIMEOUT -> {error, timeout}
     end.
@@ -80,8 +80,9 @@ handle_info({#'basic.deliver'{delivery_tag = Tag}, #amqp_msg{payload = Payload}}
         error:Reason ->
             error_logger:error_msg("Invalid queuemailerl message.~n"
                                    "Payload: ~p~n"
-                                   "Reason: ~p~n",
-                                   [Payload, Reason]),
+                                   "Reason: ~p~n"
+                                   "Trace: ~p~n",
+                                   [Payload, Reason, erlang:get_stacktrace()]),
 
             %% Since we consider the message invalid if this happens
             %% an ack is sent so that the message will be dropped from

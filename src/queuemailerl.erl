@@ -26,7 +26,7 @@
 -module(queuemailerl).
 
 %% public API
--export([start/0]).
+-export([start/0, stop/0]).
 
 -behaviour(application).
 -export([start/2, stop/1]).
@@ -37,6 +37,10 @@
 %% @doc Starts the application and all dependent applications.
 start() ->
     application:ensure_all_started(queuemailerl, permanent).
+
+%% @doc Stop the application
+stop() ->
+    application:stop(queuemailerl).
 
 %% @doc Application callback
 start(_Type, _Args) ->
@@ -50,11 +54,11 @@ stop(_State) ->
 %% @doc Supervisor callback
 init([]) ->
     Procs = [
-        {queuemailerl_ampq_mgr, {queuemailerl_ampq_mgr, start_link, []},
-         permanent, 10, worker, [queuemailerl_ampq_mgr]},
+        {queuemailerl_amqp_mgr, {queuemailerl_amqp_mgr, start_link, []},
+         permanent, 10, worker, [queuemailerl_amqp_mgr]},
         {queuemailerl_listener, {queuemailerl_listener, start_link, []},
          permanent, 10, worker, [queuemailerl_listener]},
-        {queuemailer_smtp_sup, {queuemailer_smtp_sup, start_link, []},
-         permanent, 10, supervisor, [queuemailer_smtp_sup]}
+        {queuemailerl_smtp_sup, {queuemailerl_smtp_sup, start_link, []},
+         permanent, 10, supervisor, [queuemailerl_smtp_sup]}
     ],
     {ok, {{one_for_all, 10, 10}, Procs}}.

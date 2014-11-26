@@ -27,8 +27,8 @@ init([]) ->
         username           = proplists:get_value(username, RabbitProps),
         password           = proplists:get_value(password, RabbitProps),
         virtual_host       = proplists:get_value(vhost, RabbitProps, <<"/">>),
-        host               = proplists:get_value(host, RabbitProps),
-        port               = proplists:get_value(port, RabbitProps),
+        host               = proplists:get_value(host, RabbitProps, "localhost"),
+        port               = proplists:get_value(port, RabbitProps, 5672),
         heartbeat          = 5,
         connection_timeout = 60000
     },
@@ -67,7 +67,8 @@ handle_info(Info, State) ->
     error_logger:info_msg("~p ignoring info ~p", [?MODULE, Info]),
     {noreply, State}.
 
-terminate(_Reason, {ConnectionPid, _ChannelPid}) ->
+terminate(_Reason, {ConnectionPid, ChannelPid}) ->
+    amqp_channel:close(ChannelPid),
     amqp_connection:close(ConnectionPid, 1000),
     %% close and/or kill the channel as well?
     ok.
