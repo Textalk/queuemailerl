@@ -1,13 +1,11 @@
 -module(test_smtp_server).
 -behaviour(gen_smtp_server_session).
 
--export([start/2, stop/0]).
+-export([start_link/1, stop/0]).
 
 -export([init/4, handle_HELO/2, handle_EHLO/3, handle_MAIL/2, handle_MAIL_extension/2,
          handle_RCPT/2, handle_RCPT_extension/2, handle_DATA/4, handle_RSET/1, handle_VRFY/2,
          handle_other/3, handle_AUTH/4, handle_STARTTLS/1, code_change/3, terminate/2]).
-
--define(RELAY, true).
 
 -record(state,
 	{
@@ -17,13 +15,13 @@
 -type(error_message() :: {'error', string(), #state{}}).
 
 %% @doc Start a test smtp server that relays all incoming mails to the given process
-start(Port, Proc) ->
-    ListenerOpts = [{port, Port}, {sessionoptions, [{callbackoptions, [{test_proc, Proc}]}]}],
-    gen_smtp_server:start({local, test_smtp}, test_smtp_server, [ListenerOpts]).
+start_link(Port) ->
+    ListenerOpts = [{port, Port}, {sessionoptions, [{callbackoptions, [{test_proc, self()}]}]}],
+    gen_smtp_server:start_link({local, test_smtp}, test_smtp_server, [ListenerOpts]).
 
 %% @doc Stop the test smtp server
 stop() ->
-    gen_smtp_server:stop(test_smtp).
+    gen_smtp_server:stop(whereis(test_smtp)).
 
 %% @doc Initialize the callback module's state for a new session.
 %% The arguments to the function are the SMTP server's hostname (for use in the SMTP anner),
@@ -89,10 +87,10 @@ handle_RCPT(_To, State) ->
 handle_RCPT_extension(_Extension, State) ->
     {ok, State}.
 
+%% @doc This is where the mail is received.
 -spec handle_DATA(From :: binary(), To :: [binary(),...], Data :: binary(), State :: #state{}) -> {'ok', string(), #state{}} | {'error', string(), #state{}}.
 handle_DATA(From, To, Data, #state{options = Options} = State) ->
-    TestProc = whereis(proplists:get_value(test_proc, Options)),
-    error_logger:info_msg("From: ~p~nTo: ~p~n Data: ~p~n Proc: ~p~n", [From, To, Data, TestProc]),
+    TestProc = proplists:get_value(test_proc, Options),
     TestProc ! {From, To, Data},
     {ok, "Ok", State}.
 
