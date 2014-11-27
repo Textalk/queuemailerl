@@ -1,7 +1,7 @@
 %% @doc Abstract datatype for an event.
 -module(queuemailerl_event).
 
--export([parse/1, build_mail/1, get_smtp_options/1, build_error_mail/1]).
+-export([parse/1, build_mail/1, get_smtp_options/1, build_error_mail/2]).
 -export_type([event/0]).
 
 -record(mail, {from, to, cc, bcc, headers, body}).
@@ -28,14 +28,25 @@ parse(RawEvent) ->
     {MailFrom :: binary(), RcptTo :: [binary()], Email :: iodata()}.
 build_mail(#event{mail = #mail{from = From, to = To, cc = Cc, bcc = Bcc,
                                headers = Headers, body = Body}}) ->
-    Headers1 = [{<<"Cc">>, join(Cc)} || Cc /= []] ++
+    Headers1 = [{<<"From">>, From}] ++
                [{<<"To">>, join(To)} || To /= []] ++
+               [{<<"Cc">>, join(Cc)} || Cc /= []] ++
                Headers,
+
+    Headers2 = [{to_header_case(Header), Value} || {Header, Value} <- Headers1],
+    Headers3 = case proplists:is_defined(<<"Date">>, Headers2) of
+        false ->
+            %% Append header; don't prepend.
+            Date = list_to_binary(smtp_util:rfc5322_timestamp()),
+            Headers2 ++ [{<<"Date">>, Date}];
+        true ->
+            Headers2
+    end,
 
     MailFrom = extract_email_address(From),
     RcptTo   = lists:map(fun extract_email_address/1, To ++ Cc ++ Bcc),
 
-    Head = [[Key, <<": ">>, Value, <<"\r\n">>] || {Key, Value} <- Headers1],
+    Head = [[Key, <<": ">>, Value, <<"\r\n">>] || {Key, Value} <- Headers3],
     Email = [Head, <<"\r\n">>, Body],
 
     {MailFrom, RcptTo, Email}.
@@ -54,10 +65,11 @@ get_smtp_options(#event{smtp = #smtp{relay = Relay, port = Port,
 %% gen_smtp_client:send/2,1 and gen_smtp_client:send_blocking/2.
 %%
 %% The returned mail is an error message with the original mail attached.
--spec build_error_mail(event()) ->
+-spec build_error_mail(event(), OrigMail :: binary()) ->
     {MailFrom :: binary(), RcptTo :: [binary()], Email :: iodata()}.
-build_error_mail(Event = #event{error = #error{to = To, subject = Subject,
-                                               body = Body}}) ->
+build_error_mail(#event{error = #error{to = To, subject = Subject,
+                                       body = Body}},
+                 OrigMail) ->
     %% Error mail sender -- somewhat relates to the error smtp settings.
     {ok, ErrorFrom} = application:get_env(queuemailerl, error_from),
 
@@ -65,7 +77,6 @@ build_error_mail(Event = #event{error = #error{to = To, subject = Subject,
     MessagePart = {<<"text">>, <<"plain">>, [], [],  Body},
 
     %% The failing mail as an attachment
-    {_, _, OrigMail} = build_mail(Event),
     Attachement = {<<"message">>, <<"rfc822">>, [],
                    [{<<"content-type-params">>, [{<<"name">>, <<"Mail">>}]},
                     {<<"dispisition">>, <<"attachment">>},
@@ -73,16 +84,10 @@ build_error_mail(Event = #event{error = #error{to = To, subject = Subject,
                    iolist_to_binary(OrigMail)},
 
     %% The envelope
-    Headers = [
-	    {<<"From">>, ErrorFrom},
-	    {<<"To">>, To},
-	    {<<"Subject">>, Subject}
-	    %{<<"Message-ID">>, <<"<unique@example.com>">>}, <-- auto
-	    %{<<"MIME-Version">>, <<"1.0">>}
-	    %{<<"Date">>, <<"Sun, 01 Nov 2009 14:44:47 +0200">>}, <-- auto
-        %{<<"Content-Type">>, <<"multipart/mixed; boundary=", Boudary/binary>>} <-- auto
-    ],
-    ErrorMail = mimemail:encode({<<"multipart">>, <<"mixed">>, Headers, [],
+    ErrorMail = mimemail:encode({<<"multipart">>, <<"mixed">>,
+                                 [{<<"From">>, ErrorFrom}, {<<"To">>, To},
+                                  {<<"Subject">>, Subject}],
+                                 [],
                                  [MessagePart, Attachement]}),
 
     %% Wrap it in a tuple as expected by gen_smtp_client send functions.

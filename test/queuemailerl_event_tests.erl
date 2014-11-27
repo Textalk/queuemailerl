@@ -25,17 +25,30 @@ build_error_mail_test() ->
             {body, <<"The message to be sent in the event of error">>}
         ]}}
     ]},
+    %% Original is build from the Data, but that's another test case.
+    OrigMail =
+        <<"From: \"Alice\" <alice@example.com>\r\n"
+          "To: \"Bob\" <bob@example.com>\r\n"
+          "Subject: Test\r\n"
+          "Date: Thu, 27 Nov 2014 19:33:09 +0100\r\n"
+          "\r\n"
+          "TestBody\r\n">>,
+
+    %% Build the error mail from the event data.
     Event = queuemailerl_event:parse(jiffy:encode(Data)),
-    {From, To, Mail} = queuemailerl_event:build_error_mail(Event),
+    {From, To, Mail} = queuemailerl_event:build_error_mail(Event, OrigMail),
+
+    %% Check from and to
     ?assertEqual(<<"<noreply@example.com>">>, From),
     ?assertEqual([<<"<email-administrator@example.com>">>], To),
+
+    %% Extract things that vary, e.g. time and random stuff.
     {match, [Boundary]} = re:run(Mail, <<"boundary=\"([^\"]*)\"">>,
                                  [{capture, all_but_first, binary}]),
     {match, [Date]} = re:run(Mail, <<"Date: ([^\\r\\n]*)\r\n">>,
                              [{capture, all_but_first, binary}]),
     {match, [MessageID]} = re:run(Mail, <<"Message-ID: (<[\\w\.@]+>)\r\n">>,
                                   [{capture, all_but_first, binary}]),
-    %% FIXME: Where is the "From:" in the original email (Alice)?? Missing...
     %% TODO: Add the failing SMTP settings (excluding the password).
     ExpectedMail =
         <<"From: noreply@example.com\r\n"
@@ -57,11 +70,8 @@ build_error_mail_test() ->
           "\tname=Mail\r\n"
           "Content-Disposition: inline;\r\n"
           "\tfilename=Mail.eml\r\n"
-          "\r\n"
-          "To: \"Bob\" <bob@example.com>\r\n"
-          "Subject: Test\r\n"
-          "\r\n"
-          "TestBody\r\n"
+          "\r\n",
+          OrigMail/binary, "\r\n"
           "--", Boundary/binary, "--\r\n">>,
     %% Isolate the differences before the assertion so that if the assertment
     %% fails, it's easier to locate where the actual difference is.
