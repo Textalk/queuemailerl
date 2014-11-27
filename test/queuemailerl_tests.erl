@@ -3,8 +3,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("amqp_client/include/amqp_client.hrl").
 
+-define(TEST_PROC, test_proc).
 -define(SMTP_PORT, 2525).
-
 -define(RABBITMQ_CONF,
     [
      {username, <<"test">>},
@@ -17,16 +17,17 @@
 all_test_() ->
     {setup,
      fun () ->
+        %% Setup a rabbitmq environment (queues etc).
+        RabbitMQConf = rabbitmq_test_setup(),
+
         %% Load, configure and start the queuemailerl app
         application:load(queuemailerl),
-        application:set_env(queuemailerl, rabbitmq, ?RABBITMQ_CONF),
+        application:set_env(queuemailerl, rabbitmq, RabbitMQConf),
         queuemailerl:start(),
 
-        %% Setup a connection to rabbitmq to send mail on
-        rabbitmq_test_channel(),
-
         %% Start a dummy SMTP-server that can receive messages
-        test_smtp_server:start(?SMTP_PORT)
+        test_smtp_server:start(?SMTP_PORT, ?TEST_PROC),
+        RabbitMQConf
      end,
      fun (_) ->
         %% Close send connection to RabbitMQ
@@ -44,6 +45,9 @@ all_test_() ->
 
 %% Sends an email successfully.
 successful_email() ->
+    %% Register ourselves to get the mail from the server
+    register(?TEST_PROC, self()),
+
     Event = {[
         {mail, {[
             {from, <<"\"Alice\" <alice@example.com>">>},
@@ -71,15 +75,18 @@ successful_email() ->
     },
     Content = #amqp_msg{payload = jiffy:encode(Event)},
     amqp_channel:cast(whereis(test_rabbitmq_send_channel), Publish, Content),
+    ?debugFmt("Sent mail to queue from ~p.", [self()]),
     receive
-        {From, To, Data} ->
-            ?debugFmt("From: ~p~nTo: ~p~n Data: ~p~n", [From, To, Data])
+        Msg ->
+            ?debugFmt("Msg: ~p", [Msg])
     after
         1000 ->
             error(timeout)
     end.
 
-rabbitmq_test_channel() ->
+%% @doc Make a test connection to the RabbitMQ broker and start a temporary
+%% queue that will be used to publish mails to.
+rabbitmq_test_setup() ->
     RabbitProps = ?RABBITMQ_CONF,
     AmqpConnParams = #amqp_params_network{
         username           = proplists:get_value(username, RabbitProps),
@@ -91,8 +98,14 @@ rabbitmq_test_channel() ->
         connection_timeout = 60000
     },
 
+    %% Create the test connection and channel
     {ok, ConnectionPid} = amqp_connection:start(AmqpConnParams),
     {ok, ChannelPid} = amqp_connection:open_channel(ConnectionPid),
     register(test_rabbitmq_send_connection, ConnectionPid),
-    register(test_rabbitmq_send_channel, ChannelPid).
+    register(test_rabbitmq_send_channel, ChannelPid),
 
+    %% Delete the old test queue
+    QueueDelete = #'queue.delete'{queue = proplists:get_value(queue, RabbitProps)},
+    #'queue.delete_ok'{} = amqp_channel:call(ChannelPid, QueueDelete),
+
+    RabbitProps.

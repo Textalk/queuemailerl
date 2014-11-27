@@ -32,13 +32,13 @@ handle_call(_Call, _From, _State) ->
 handle_cast(_Cast, _State) ->
     error(badarg).
 
-handle_info(timeout, State = #state{mail = Mail, smtp = Smtp}) ->
+handle_info(timeout, State = #state{mail = Mail, smtp = Smtp, tag = Tag}) ->
     %% (Re-)try to send the email.
     case gen_smtp_client:send_blocking(Mail, Smtp) of
         Receipt when is_binary(Receipt) ->
             %% Successful. We got a receipt from the server.
-            gen_server:cast(queuemail_listener, {ack, State#state.tag}),
-            {stop, normal};
+            gen_server:cast(queuemail_listener, {ack, Tag}),
+            {stop, normal, State};
         {error, Type, Message} ->
             error_logger:info_msg("Failed to send mail: ~p ~s", [Type, Message]),
             dispatch_retry(State);
