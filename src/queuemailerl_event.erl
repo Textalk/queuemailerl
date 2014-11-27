@@ -1,7 +1,7 @@
 %% @doc Abstract datatype for an event.
 -module(queuemailerl_event).
 
--export([parse/1, build_mail/1, get_smtp_options/1]).
+-export([parse/1, build_mail/1, get_smtp_options/1, build_error_mail/1]).
 -export_type([event/0]).
 
 -record(mail, {from, to, cc, bcc, headers, body}).
@@ -50,6 +50,44 @@ get_smtp_options(#event{smtp = #smtp{relay = Relay, port = Port,
         [{username, User} || User /= undefined] ++
         [{password, Pass} || Pass /= undefined].
 
+%% @doc Returns a mail as a triple that can be used as the first argument to
+%% gen_smtp_client:send/2,1 and gen_smtp_client:send_blocking/2.
+%%
+%% The returned mail is an error message with the original mail attached.
+-spec build_error_mail(event()) ->
+    {MailFrom :: binary(), RcptTo :: [binary()], Email :: iodata()}.
+build_error_mail(Event = #event{error = #error{to = To, subject = Subject,
+                                               body = Body}}) ->
+    %% Error mail sender -- somewhat relates to the error smtp settings.
+    {ok, ErrorFrom} = application:get_env(queuemailerl, error_from),
+
+    %% The message part in a multipart/mixed email.
+    MessagePart = {<<"text">>, <<"plain">>, [], [],  Body},
+
+    %% The failing mail as an attachment
+    {_, _, OrigMail} = build_mail(Event),
+    Attachement = {<<"message">>, <<"rfc822">>, [],
+                   [{<<"content-type-params">>, [{<<"name">>, <<"Mail">>}]},
+                    {<<"dispisition">>, <<"attachment">>},
+                    {<<"disposition-params">>, [{<<"filename">>, <<"Mail.eml">>}]}],
+                   iolist_to_binary(OrigMail)},
+
+    %% The envelope
+    Headers = [
+	    {<<"From">>, ErrorFrom},
+	    {<<"To">>, To},
+	    {<<"Subject">>, Subject}
+	    %{<<"Message-ID">>, <<"<unique@example.com>">>}, <-- auto
+	    %{<<"MIME-Version">>, <<"1.0">>}
+	    %{<<"Date">>, <<"Sun, 01 Nov 2009 14:44:47 +0200">>}, <-- auto
+        %{<<"Content-Type">>, <<"multipart/mixed; boundary=", Boudary/binary>>} <-- auto
+    ],
+    ErrorMail = mimemail:encode({<<"multipart">>, <<"mixed">>, Headers, [],
+                                 [MessagePart, Attachement]}),
+
+    %% Wrap it in a tuple as expected by gen_smtp_client send functions.
+    {extract_email_address(ErrorFrom), [extract_email_address(To)], ErrorMail}.
+
 %% ------------------------------------------------------
 
 %% Internal
@@ -96,7 +134,7 @@ extract_email_address(Bin) ->
         {match, [Email]} ->
             Email;
         nomatch ->
-            match = re:run(Bin, <<"^\S+@\S+$">>),
+            match = re:run(Bin, <<"^\\S+@\\S+$">>, [{capture, none}]),
             <<"<", Bin/binary, ">">>
     end.
 

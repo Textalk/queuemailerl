@@ -78,6 +78,7 @@ The following `env` settings exist for the `queuemailerl` application:
 * `error_smtp`: A list of SMTP options for use when sending error reports. The
   options are the same as for the second argument to
   [`gen_smtp_client:send/2,3`](https://github.com/Vagabond/gen_smtp/).
+* `error_from`: The sender of the error email sender.
 
 Tests
 -----
