@@ -35,6 +35,8 @@ build_error_mail_test() ->
                              [{capture, all_but_first, binary}]),
     {match, [MessageID]} = re:run(Mail, <<"Message-ID: (<[\\w\.@]+>)\r\n">>,
                                   [{capture, all_but_first, binary}]),
+    %% FIXME: Where is the "From:" in the original email (Alice)?? Missing...
+    %% TODO: Add the failing SMTP settings (excluding the password).
     ExpectedMail =
         <<"From: noreply@example.com\r\n"
           "To: email-administrator@example.com\r\n"
