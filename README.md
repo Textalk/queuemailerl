@@ -1,9 +1,16 @@
 queuemailerl
 ============
 
+[![Build Status](https://travis-ci.org/Textalk/queuemailerl.svg)](https://travis-ci.org/Textalk/queuemailerl)
+
 Dispatches emails from a RabbitMQ queue to multiple SMTP servers.
 
-Status: Planning.
+Status: Work in progress.
+
+Requirements:
+
+* Erlang/OTP R16B02 or later. (`application:ensure_all_started/2` was added in R16B01.)
+* RabbitMQ
 
 Modus operandi
 --------------
@@ -71,3 +78,11 @@ The following `env` settings exist for the `queuemailerl` application:
 * `error_smtp`: A list of SMTP options for use when sending error reports. The
   options are the same as for the second argument to
   [`gen_smtp_client:send/2,3`](https://github.com/Vagabond/gen_smtp/).
+
+Tests
+-----
+
+You can run the tests with `rebar skip_deps=true eunit`. RabbitMQ needs to be
+running on localhost with full permissions for the user "test", password "test"
+on the vhost "/test". (Hint: Look at the `.travis.yml` file for how this can be
+set up.)
