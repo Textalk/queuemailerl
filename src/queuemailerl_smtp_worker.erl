@@ -40,7 +40,7 @@ handle_info(timeout, State = #state{mail = Mail, smtp = Smtp}) ->
             gen_server:cast(queuemail_listener, {ack, State#state.tag}),
             {stop, normal};
         {error, Type, Message} ->
-            error_logger:info_msg("Failed to send mail: ~p ~s", [Type, Message]),
+            error_logger:info_msg("Failed to send mail: ~p ~p", [Type, Message]),
             dispatch_retry(State);
         {error, Reason} ->
             error_logger:info_msg("Failed to send mail: ~p", [Reason]),
