@@ -42,6 +42,9 @@ handle_call(_Call, _From, _State) ->
 handle_cast(_Cast, _State) ->
     error(badarg).
 
+%% @doc
+%% TODO: Save error Type and Message in the state and include them in the error
+%% mail when we give up.
 handle_info(retry, State = #state{event = Event, tag = Tag}) ->
     %% (Re-)try to send the email.
     Mail = queuemailerl_event:get_mail(Event),
@@ -51,11 +54,9 @@ handle_info(retry, State = #state{event = Event, tag = Tag}) ->
             %% Successful. We got a receipt from the server.
             gen_server:cast(queuemailerl_listener, {ack, Tag}),
             {stop, normal, State};
-        {error, Type, Message} ->
-            error_logger:info_msg("Failed to send mail: ~p ~p", [Type, Message]),
+        {error, _Type, _Message} ->
             dispatch_retry(State);
-        {error, Reason} ->
-            error_logger:info_msg("Failed to send mail: ~p", [Reason]),
+        {error, _Reason} ->
             dispatch_retry(State)
     end;
 handle_info(Info, State) ->

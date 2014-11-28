@@ -90,6 +90,9 @@ handle_info({#'basic.deliver'{delivery_tag = Tag}, #amqp_msg{payload = Payload}}
             amqp_channel:cast(Channel, Acknowledge)
     end,
     {noreply, Channel};
+handle_info(#'basic.cancel'{}, State) ->
+    %% Rabbit went down. That's nothing to worry about here.
+    {noreply, State};
 handle_info(Info, State) ->
     %% Some other message to the server pid
     error_logger:info_msg("~p ignoring info ~p", [?MODULE, Info]),
