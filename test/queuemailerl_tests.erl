@@ -91,6 +91,9 @@ successful_email() ->
 %% Send a mail event over MQ that should be sent. But the SMTP-server is not
 %% up and running directly and thus the worker has to wait and try to resend.
 smtp_server_restart() ->
+    %% Turn of error_logger on tty since this test is suppose to output
+    %% error logs
+    error_logger:tty(false),
 
     %% Construct the email event
     From = <<"alice@example.com">>,
@@ -136,17 +139,24 @@ smtp_server_restart() ->
     test_smtp_server:start_link(?SMTP_PORT),
 
     %% Wait for the worker to send the message and the SMTP server to relay it back to us
-    receive
-        {From, [To], _Data} -> test_smtp_server:stop()
-    after
-        1000 -> error(timeout)
-    end.
+    Result = receive
+                 {From, [To], _Data} -> true
+             after
+                 1000 -> false
+             end,
+    test_smtp_server:stop(),
+    error_logger:tty(true),
+    ?assert(Result).
 
 %% TODO: COMPLETE
 %% Sending an mail to a dead SMTP server should result in a email being sent to the sender
 %% after the retry limit has been reached. This email should contain the original as an
 %% attachment.
 smtp_server_dead() ->
+    ?assert(false),
+    %% Turn of error_logger on tty since this test is suppose to output
+    %% error logs
+    error_logger:tty(false),
 
     %% Start the ERROR SMTP server
     test_smtp_server:start_link(?ERROR_SMTP_PORT),
@@ -175,7 +185,6 @@ smtp_server_dead() ->
         ]}}
     ]},
 
-
     %% Wrap it in the RabbitMQ framing and send it
     Publish = #'basic.publish'{
         exchange = <<"amq.direct">>,
@@ -185,11 +194,14 @@ smtp_server_dead() ->
     amqp_channel:cast(whereis(test_rabbitmq_send_channel), Publish, Content),
 
     %% Wait for the error message to arrive
-    receive
-        {_From, [_To], _Data} -> test_smtp_server:stop()
-    after
-        5000 -> error(timeout)
-    end.
+    Result = receive
+                 {_From, [_To], _Data} -> true
+             after
+                 5000 -> false
+             end,
+    test_smtp_server:stop(),
+    error_logger:tty(true),
+    ?assert(Result).
 
 %% @doc Make a test connection to the RabbitMQ broker and start a temporary
 %% queue that will be used to publish mails to.

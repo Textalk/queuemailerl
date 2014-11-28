@@ -1,5 +1,7 @@
-%% @doc A gen_server wrapper for the AMPQ processes we need, because the amqp client doesn't handle
-%% stuff in a supervisor friendly way.
+%% @doc A gen_server wrapper for the AMPQ processes we need.
+%% This is needed because the amqp_client-library doesn't handle this stuff in a supervisor friendly
+%% way. This module starts a connection and a channel to the broker which we use to retrive email
+%% events from the queue. If anything goes wrong here just shutdown or let it crash.
 -module(queuemailerl_amqp_mgr).
 
 -export([start_link/0, get_channel/0]).
@@ -42,7 +44,10 @@ init([]) ->
     {ok, {ConnectionPid, ChannelPid}}.
 
 handle_call(get_channel, _From, State = {_, ChannelPid}) ->
-    {reply, ChannelPid, State}.
+    {reply, ChannelPid, State};
+handle_call(Call, _From, State) ->
+    error_logger:info_msg("~p ignoring call ~p", [?MODULE, Call]),
+    {reply, ok, State}.
 
 handle_cast(Cast, State) ->
     error_logger:info_msg("~p ignoring cast ~p", [?MODULE, Cast]),
@@ -53,15 +58,6 @@ handle_info({'DOWN', _MRef, process, _ConnOrChan, Reason}, State) ->
     %% Stop and let the supervisor restart us.
     error_logger:error_msg("Connection or channel to RabbitMQ died.~nReason: ~p~n", [Reason]),
     {stop, normal, State};
-handle_info({'EXIT', _Worker, normal}, State) ->
-    %% A channel or connection has finished and exits gracefully.
-    %% This is probably part of a shutdown procedure. Do nothing.
-    {noreply, State};
-handle_info({'EXIT', _Worker, Reason}, State) ->
-    %% A worker has died before finishing the job, requeue the event
-    %% Stop and let the supervisor restart us.
-    error_logger:error_msg("Connection or channel to RabbitMQ died.~nReason: ~p~n", [Reason]),
-    {stop, normal, State};
 handle_info(Info, State) ->
     %% Some other message to the server pid
     error_logger:info_msg("~p ignoring info ~p", [?MODULE, Info]),
@@ -69,9 +65,7 @@ handle_info(Info, State) ->
 
 terminate(_Reason, {ConnectionPid, ChannelPid}) ->
     amqp_channel:close(ChannelPid),
-    amqp_connection:close(ConnectionPid, 1000),
-    %% close and/or kill the channel as well?
-    ok.
+    amqp_connection:close(ConnectionPid, 1000).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
