@@ -1,7 +1,7 @@
 %% @doc Abstract datatype for an event.
 -module(queuemailerl_event).
 
--export([parse/1, build_mail/1, get_smtp_options/1, build_error_mail/2]).
+-export([parse/1, get_mail/1, get_smtp_options/1, build_error_mail/1]).
 -export_type([event/0]).
 
 -record(mail, {from, to, cc, bcc, headers, body}).
@@ -12,44 +12,25 @@
 -opaque event() :: #event{}.
 
 %% @doc Parses a raw JSON event and raises an error if the event is incorrect.
--spec parse(binary()) -> event().
+-spec parse(binary()) -> {ok, event()} | {error, term()}.
 parse(RawEvent) ->
-    {Props} = jiffy:decode(RawEvent),
-    #event{mail = parse_mail_part(proplists:get_value(<<"mail">>, Props)),
-           smtp = parse_smtp_part(proplists:get_value(<<"smtp">>, Props)),
-           error = parse_error_part(proplists:get_value(<<"error">>, Props))}.
+    try
+        {Props} = jiffy:decode(RawEvent),
+        MailRecord = parse_mail_part(proplists:get_value(<<"mail">>, Props)),
+        Mail = build_mail(MailRecord),
+        #event{mail = Mail,
+               smtp = parse_smtp_part(proplists:get_value(<<"smtp">>, Props)),
+               error = parse_error_part(proplists:get_value(<<"error">>, Props))}
+    of
+        Event -> {ok, Event}
+    catch
+        error:Reason -> {error, Reason}
+    end.
 
 %% @doc Returns a triple that can as the first argument to
 %% gen_smtp_client:send/2,1 and gen_smtp_client:send_blocking/2.
-%%
-%% TODO: Convert all headers to header-case using to_header_case/1.
-%% TODO: Add a Date header if not preset.
--spec build_mail(event()) ->
-    {MailFrom :: binary(), RcptTo :: [binary()], Email :: iodata()}.
-build_mail(#event{mail = #mail{from = From, to = To, cc = Cc, bcc = Bcc,
-                               headers = Headers, body = Body}}) ->
-    Headers1 = [{<<"From">>, From}] ++
-               [{<<"To">>, join(To)} || To /= []] ++
-               [{<<"Cc">>, join(Cc)} || Cc /= []] ++
-               Headers,
-
-    Headers2 = [{to_header_case(Header), Value} || {Header, Value} <- Headers1],
-    Headers3 = case proplists:is_defined(<<"Date">>, Headers2) of
-        false ->
-            %% Append header; don't prepend.
-            Date = list_to_binary(smtp_util:rfc5322_timestamp()),
-            Headers2 ++ [{<<"Date">>, Date}];
-        true ->
-            Headers2
-    end,
-
-    MailFrom = extract_email_address(From),
-    RcptTo   = lists:map(fun extract_email_address/1, To ++ Cc ++ Bcc),
-
-    Head = [[Key, <<": ">>, Value, <<"\r\n">>] || {Key, Value} <- Headers3],
-    Email = [Head, <<"\r\n">>, Body],
-
-    {MailFrom, RcptTo, Email}.
+get_mail(#event{mail = Mail}) ->
+    Mail.
 
 %% @doc Returns a proplist that can be used as the 2nd argument to
 %% gen_smtp_client:send/2,3 and gen_smtp_client:send_blocking/2.
@@ -65,11 +46,11 @@ get_smtp_options(#event{smtp = #smtp{relay = Relay, port = Port,
 %% gen_smtp_client:send/2,1 and gen_smtp_client:send_blocking/2.
 %%
 %% The returned mail is an error message with the original mail attached.
--spec build_error_mail(event(), OrigMail :: binary()) ->
+-spec build_error_mail(event()) ->
     {MailFrom :: binary(), RcptTo :: [binary()], Email :: iodata()}.
 build_error_mail(#event{error = #error{to = To, subject = Subject,
-                                       body = Body}},
-                 OrigMail) ->
+                                       body = Body},
+                        mail = {_, _, OrigMail}}) ->
     %% Error mail sender -- somewhat relates to the error smtp settings.
     {ok, ErrorFrom} = application:get_env(queuemailerl, error_from),
 
@@ -133,9 +114,37 @@ parse_error_part({Props}) ->
     true = is_binary(Body),
     #error{to = To, subject = Subject, body = Body}.
 
+%% @doc See doc for get_mail/1.
+-spec build_mail(#mail{}) ->
+    {MailFrom :: binary(), RcptTo :: [binary()], Email :: binary()}.
+build_mail(#mail{from = From, to = To, cc = Cc, bcc = Bcc,
+                 headers = Headers, body = Body}) ->
+    Headers1 = [{<<"From">>, From}] ++
+               [{<<"To">>, join(To)} || To /= []] ++
+               [{<<"Cc">>, join(Cc)} || Cc /= []] ++
+               Headers,
+
+    Headers2 = [{to_header_case(Header), Value} || {Header, Value} <- Headers1],
+    Headers3 = case proplists:is_defined(<<"Date">>, Headers2) of
+        false ->
+            %% Append header; don't prepend.
+            Date = list_to_binary(smtp_util:rfc5322_timestamp()),
+            Headers2 ++ [{<<"Date">>, Date}];
+        true ->
+            Headers2
+    end,
+
+    MailFrom = extract_email_address(From),
+    RcptTo   = lists:map(fun extract_email_address/1, To ++ Cc ++ Bcc),
+
+    Head = [[Key, <<": ">>, Value, <<"\r\n">>] || {Key, Value} <- Headers3],
+    Email = iolist_to_binary([Head, <<"\r\n">>, Body]),
+
+    {MailFrom, RcptTo, Email}.
+
 %% @doc Returns a binary on the form `<<"<email@example.com>">>'.
 extract_email_address(Bin) ->
-    case re:run(Bin, <<"<(.*@.*)>$">>, [{capture, all_but_first, binary}]) of
+    case re:run(Bin, <<"<.*@.*>$">>, [{capture, all, binary}]) of
         {match, [Email]} ->
             Email;
         nomatch ->
