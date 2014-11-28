@@ -25,22 +25,11 @@
 %% </ul>
 -module(queuemailerl).
 
-%% public API
--export([start/0, stop/0]).
-
 -behaviour(application).
 -export([start/2, stop/1]).
 
 -behaviour(supervisor).
 -export([init/1]).
-
-%% @doc Starts the application and all dependent applications.
-start() ->
-    application:ensure_all_started(queuemailerl, permanent).
-
-%% @doc Stop the application
-stop() ->
-    application:stop(queuemailerl).
 
 %% @doc Application callback
 start(_Type, _Args) ->

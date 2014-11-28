@@ -5,7 +5,7 @@
 
 -define(TEST_PROC, test_proc).
 -define(SMTP_PORT, 2525).
--define(ERROR_SMTP_PORT, 25252).
+-define(ERROR_SMTP, [{relay, "localhost"}, {port, 25252}]).
 -define(ERROR_FROM, <<"noreply@example.com">>).
 -define(RABBITMQ_CONF,
     [
@@ -16,28 +16,45 @@
     ]
 ).
 
+%% Macro to silence the error logger. Doesn't seem to work sometimes.
+-define(silence(What), error_logger:tty(false),
+                       try What after error_logger:tty(true) end).
+
 all_test_() ->
     {setup,
      fun () ->
-        %% Setup a rabbitmq environment (queues etc).
-        RabbitMQConf = rabbitmq_test_setup(),
-
         %% Load, configure and start the queuemailerl app
         application:load(queuemailerl),
-        application:set_env(queuemailerl, rabbitmq, RabbitMQConf),
+        application:set_env(queuemailerl, rabbitmq, ?RABBITMQ_CONF),
         application:set_env(queuemailerl, retry_count, 10),
         application:set_env(queuemailerl, retry_initial_delay, 1),
-        application:set_env(queuemailerl, error_smtp, [{port, ?ERROR_SMTP_PORT}]),
+        application:set_env(queuemailerl, error_smtp, ?ERROR_SMTP),
         application:set_env(queuemailerl, error_from, ?ERROR_FROM),
-        queuemailerl:start()
+
+        %% Start our application and the dependencies.
+        error_logger:tty(false),
+        {ok, Apps} = application:ensure_all_started(queuemailerl, permanent),
+        error_logger:tty(true),
+
+        %% Setup a rabbitmq environment (queues etc).
+        rabbitmq_test_setup(),
+
+        Apps
      end,
-     fun (_) ->
+     fun (StartedApplications) ->
+        %% Delete the test queue
+        RabbitProps = ?RABBITMQ_CONF,
+        QueueDelete = #'queue.delete'{queue = proplists:get_value(queue, RabbitProps)},
+        ChannelPid = whereis(test_rabbitmq_send_channel),
+        #'queue.delete_ok'{} = amqp_channel:call(ChannelPid, QueueDelete),
+
         %% Close send connection to RabbitMQ
         amqp_channel:close(whereis(test_rabbitmq_send_channel)),
         amqp_connection:close(whereis(test_rabbitmq_send_connection)),
 
-        %% Close the application
-        queuemailerl:stop()
+        %% Stop the application and the dependencies in reverse order
+        ?silence(lists:foreach(fun application:stop/1,
+                               lists:reverse(StartedApplications)))
      end,
      [fun successful_email/0,
       fun smtp_server_restart/0,
@@ -48,7 +65,7 @@ all_test_() ->
 successful_email() ->
 
     %% Start the SMTP server
-    test_smtp_server:start_link(?SMTP_PORT),
+    ?silence(test_smtp_server:start_link(?SMTP_PORT)),
 
     %% Construct the email event
     From = <<"alice@example.com">>,
@@ -93,10 +110,6 @@ successful_email() ->
 %% Send a mail event over MQ that should be sent. But the SMTP-server is not
 %% up and running directly and thus the worker has to wait and try to resend.
 smtp_server_restart() ->
-    %% Turn of error_logger on tty since this test is suppose to output
-    %% error logs
-    error_logger:tty(false),
-
     %% Construct the email event
     From = <<"alice@example.com">>,
     To = <<"bob@example.com">>,
@@ -137,8 +150,12 @@ smtp_server_restart() ->
         100 -> ok
     end,
 
+    %% Turn of error_logger on tty since this test is suppose to output
+    %% error logs
+    %error_logger:tty(false),
+
     %% Start the SMTP server
-    test_smtp_server:start_link(?SMTP_PORT),
+    ?silence(test_smtp_server:start_link(?SMTP_PORT)),
 
     %% Wait for the worker to send the message and the SMTP server to relay it back to us
     Result = receive
@@ -156,10 +173,11 @@ smtp_server_restart() ->
 smtp_server_dead() ->
     %% Turn of error_logger on tty since this test is suppose to output
     %% error logs
-    error_logger:tty(false),
+    %error_logger:tty(false),
 
     %% Start the ERROR SMTP server
-    test_smtp_server:start_link(?ERROR_SMTP_PORT),
+    ErrorSmtpPort = proplists:get_value(port, ?ERROR_SMTP),
+    ?silence(test_smtp_server:start_link(ErrorSmtpPort)),
     %% Construct the email event
     From = <<"alice@example.com">>,
     To = <<"bob@example.com">>,
@@ -222,9 +240,4 @@ rabbitmq_test_setup() ->
     {ok, ChannelPid} = amqp_connection:open_channel(ConnectionPid),
     register(test_rabbitmq_send_connection, ConnectionPid),
     register(test_rabbitmq_send_channel, ChannelPid),
-
-    %% Delete the old test queue
-    QueueDelete = #'queue.delete'{queue = proplists:get_value(queue, RabbitProps)},
-    #'queue.delete_ok'{} = amqp_channel:call(ChannelPid, QueueDelete),
-
-    RabbitProps.
+    ok.
