@@ -150,12 +150,10 @@ smtp_server_restart() ->
     error_logger:tty(true),
     ?assert(Result).
 
-%% TODO: COMPLETE
 %% Sending an mail to a dead SMTP server should result in a email being sent to the sender
 %% after the retry limit has been reached. This email should contain the original as an
 %% attachment.
 smtp_server_dead() ->
-    ?assert(false),
     %% Turn of error_logger on tty since this test is suppose to output
     %% error logs
     error_logger:tty(false),
