@@ -5,7 +5,7 @@
 
 -define(TEST_PROC, test_proc).
 -define(SMTP_PORT, 2525).
--define(ERROR_SMTP_PORT, 252525).
+-define(ERROR_SMTP_PORT, 25252).
 -define(RABBITMQ_CONF,
     [
      {username, <<"test">>},
@@ -150,7 +150,6 @@ smtp_server_dead() ->
 
     %% Start the ERROR SMTP server
     test_smtp_server:start_link(?ERROR_SMTP_PORT),
-
     %% Construct the email event
     From = <<"alice@example.com">>,
     To = <<"bob@example.com">>,
@@ -176,6 +175,7 @@ smtp_server_dead() ->
         ]}}
     ]},
 
+
     %% Wrap it in the RabbitMQ framing and send it
     Publish = #'basic.publish'{
         exchange = <<"amq.direct">>,
@@ -184,11 +184,11 @@ smtp_server_dead() ->
     Content = #amqp_msg{payload = jiffy:encode(Event)},
     amqp_channel:cast(whereis(test_rabbitmq_send_channel), Publish, Content),
 
-    %% Wait for the worker to send the message and the SMTP server to relay it back to us
+    %% Wait for the error message to arrive
     receive
         {_From, [_To], _Data} -> test_smtp_server:stop()
     after
-        1000 -> error(timeout)
+        5000 -> error(timeout)
     end.
 
 %% @doc Make a test connection to the RabbitMQ broker and start a temporary
