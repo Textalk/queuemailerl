@@ -2,14 +2,13 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-build_error_mail_test() ->
-    application:set_env(queuemailerl, error_from, <<"noreply@example.com">>),
-    Data = {[
+-define(TEST_EVENT_DATA, {[
         {mail, {[
             {from, <<"\"Alice\" <alice@example.com>">>},
             {to, [<<"\"Bob\" <bob@example.com>">>]},
             {'extra-headers', {[
-                {<<"Subject">>, <<"Test">>}
+                {<<"Subject">>, <<"Test">>},
+                {<<"Date">>, <<"Thu, 27 Nov 2014 19:33:09 +0100">>}
             ]}},
             {body, <<"TestBody">>}
         ]}},
@@ -24,19 +23,36 @@ build_error_mail_test() ->
             {subject, <<"Subject in error report mail">>},
             {body, <<"The message to be sent in the event of error">>}
         ]}}
-    ]},
-    %% Original is build from the Data, but that's another test case.
+    ]}).
+
+get_mail_test() ->
+    {ok, Event} = queuemailerl_event:parse(jiffy:encode(?TEST_EVENT_DATA)),
+    {From, To, Mail} = queuemailerl_event:get_mail(Event),
+
+    %% Check from and to
+    ?assertEqual(<<"<alice@example.com>">>, From),
+    ?assertEqual([<<"<bob@example.com>">>], To),
+
+    %% Check the mail itself
     OrigMail =
         <<"From: \"Alice\" <alice@example.com>\r\n"
           "To: \"Bob\" <bob@example.com>\r\n"
           "Subject: Test\r\n"
           "Date: Thu, 27 Nov 2014 19:33:09 +0100\r\n"
           "\r\n"
-          "TestBody\r\n">>,
+          "TestBody">>,
+    {OrigMail1, Mail1} = isolate_difference(OrigMail, Mail),
+    ?assertEqual(OrigMail1, Mail1).
+
+build_error_mail_test() ->
+    application:set_env(queuemailerl, error_from, <<"noreply@example.com">>),
 
     %% Build the error mail from the event data.
-    Event = queuemailerl_event:parse(jiffy:encode(Data)),
-    {From, To, Mail} = queuemailerl_event:build_error_mail(Event, OrigMail),
+    {ok, Event} = queuemailerl_event:parse(jiffy:encode(?TEST_EVENT_DATA)),
+    {From, To, Mail} = queuemailerl_event:build_error_mail(Event),
+
+    %% Original is built from the Data, but that's another test case.
+    {_, _, OrigMail} = queuemailerl_event:get_mail(Event),
 
     %% Check from and to
     ?assertEqual(<<"<noreply@example.com>">>, From),

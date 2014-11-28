@@ -5,13 +5,9 @@
 -behaviour(gen_server).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
-%% The email type from gen_smtp_client.
--type email() :: {string() | binary(), [string() | binary(), ...], string() | binary() | function()}.
-
 -record(state, {
           tag             :: binary(),                     %% The RabbitMQ tag on the event (used for ack)
-          mail            :: email(),                      %% The email to be sent
-          smtp            :: [{atom(), any()}],            %% The SMTP server to send it to
+          event           :: queuemailerl_event:event(),   %% The email to be sent, etc.
           retry_count = 0 :: non_neg_integer(),            %% Retries so far
           max_retries     :: non_neg_integer() | infinity, %% Maximum number of retries
           initial_delay   :: non_neg_integer()             %% The initial delay (increased exponentially)
@@ -31,8 +27,7 @@ start_link(Tag, Event) ->
 init([Tag, Event]) ->
     State = #state{
                tag           = Tag,
-               mail          = queuemailerl_event:build_mail(Event),
-               smtp          = queuemailerl_event:get_smtp_options(Event),
+               event         = Event,
                max_retries   = application:get_env(queuemailerl, retry_count, 10),
                initial_delay = application:get_env(queuemailerl, retry_initial_delay, 60000)
               },
@@ -47,8 +42,10 @@ handle_call(_Call, _From, _State) ->
 handle_cast(_Cast, _State) ->
     error(badarg).
 
-handle_info(retry, State = #state{mail = Mail, smtp = Smtp, tag = Tag}) ->
+handle_info(retry, State = #state{event = Event, tag = Tag}) ->
     %% (Re-)try to send the email.
+    Mail = queuemailerl_event:get_mail(Event),
+    Smtp = queuemailerl_event:get_smtp_options(Event),
     case gen_smtp_client:send_blocking(Mail, Smtp) of
         Receipt when is_binary(Receipt) ->
             %% Successful. We got a receipt from the server.
@@ -86,13 +83,24 @@ dispatch_retry(#state{retry_count = RetryCount,
     %% Retry again after exponential back-off
     erlang:send_after(InitialDelay bsl RetryCount, self(), retry),
     {noreply, State#state{retry_count = RetryCount + 1}, hibernate};
-dispatch_retry(State) ->
+dispatch_retry(State = #state{retry_count = RetryCount,
+                              max_retries = MaxRetries})
+  when RetryCount >= MaxRetries ->
     send_error_mail(State),
     %% Ack the event to RabbitMQ as we have done everything we could.
     gen_server:cast(queuemail_listener, {ack, State#state.tag}),
     {stop, normal, State}.
 
-send_error_mail(State = #state{mail = Mail, smtp = Smtp}) ->
+send_error_mail(#state{event = Event}) ->
     {ok, ErrorSmtp} = application:get_env(queuemailerl, error_smtp),
-    %% TODO: Build multipart mail.
-    ok = todo.
+    %% Build multipart mail.
+    ErrorMail = queuemailerl_event:build_error_mail(Event),
+    case gen_smtp_client:send_blocking(ErrorMail, ErrorSmtp) of
+        Receipt when is_binary(Receipt) ->
+            %% Success. We got a receipt from the server.
+            ok;
+        {error, Type, Message} ->
+            error_logger:error_msg("Failed to send error mail: ~p ~p", [Type, Message]);
+        {error, Reason} ->
+            error_logger:error_msg("Failed to send error mail: ~p", [Reason])
+    end.

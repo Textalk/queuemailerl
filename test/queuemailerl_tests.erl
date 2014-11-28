@@ -6,6 +6,7 @@
 -define(TEST_PROC, test_proc).
 -define(SMTP_PORT, 2525).
 -define(ERROR_SMTP_PORT, 25252).
+-define(ERROR_FROM, <<"noreply@example.com">>).
 -define(RABBITMQ_CONF,
     [
      {username, <<"test">>},
@@ -27,6 +28,7 @@ all_test_() ->
         application:set_env(queuemailerl, retry_count, 10),
         application:set_env(queuemailerl, retry_initial_delay, 1),
         application:set_env(queuemailerl, error_smtp, [{port, ?ERROR_SMTP_PORT}]),
+        application:set_env(queuemailerl, error_from, ?ERROR_FROM),
         queuemailerl:start()
      end,
      fun (_) ->

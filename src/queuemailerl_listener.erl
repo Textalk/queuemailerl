@@ -72,12 +72,11 @@ handle_cast({ack, Tag}, Channel) ->
 
 %% @doc Handles incoming messages from RabbitMQ.
 handle_info({#'basic.deliver'{delivery_tag = Tag}, #amqp_msg{payload = Payload}}, Channel) ->
-    try queuemailerl_event:parse(Payload) of
-        Event ->
-            supervisor:start_child(queuemailerl_smtp_sup, [Tag, Event])
-    catch
-        %% Error when parsing the event, log it then ack it to remove it from the queue
-        error:Reason ->
+    case queuemailerl_event:parse(Payload) of
+        {ok, Event} ->
+            supervisor:start_child(queuemailerl_smtp_sup, [Tag, Event]);
+        {error, Reason} ->
+            %% Error when parsing the event, log it then ack it to remove it from the queue
             error_logger:error_msg("Invalid queuemailerl message.~n"
                                    "Payload: ~p~n"
                                    "Reason: ~p~n"
