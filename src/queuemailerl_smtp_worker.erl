@@ -89,7 +89,7 @@ dispatch_retry(State = #state{retry_count = RetryCount,
   when RetryCount >= MaxRetries ->
     send_error_mail(State),
     %% Ack the event to RabbitMQ as we have done everything we could.
-    gen_server:cast(queuemail_listener, {ack, State#state.tag}),
+    gen_server:cast(queuemailerl_listener, {ack, State#state.tag}),
     {stop, normal, State}.
 
 send_error_mail(#state{event = Event}) ->
