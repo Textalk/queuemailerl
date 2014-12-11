@@ -10,7 +10,7 @@
 -define(RABBITMQ_CONFIGS, [[{username, <<"test">>},
                             {password, <<"test">>},
                             {vhost, <<"/test">>}]]).
--define(QUEUE, <<"test">>),
+-define(QUEUE, <<"test">>).
 
 %% Macro to silence the error logger. Doesn't seem to work sometimes.
 -define(silence(What), error_logger:tty(false),
