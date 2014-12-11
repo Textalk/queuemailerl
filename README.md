@@ -69,9 +69,11 @@ Application settings
 
 The following `env` settings exist for the `queuemailerl` application:
 
-* `rabbitmq`: a list of RabbitMQ options: `{username, binary()} |
-    {password, binary()} | {vhost, binary()} | {host, binary()} |
-    {port, integer()}` where `vhost` is optional with `<<"/">>` as the default.
+* `rabbitmq_configs`: a list of RabbitMQ configurations, each a list of
+  options: `{username, binary()} | {password, binary()} | {vhost, binary()} |
+  {host, binary()} | {port, integer()}` where `vhost` is optional with
+  `<<"/">>` as the default.
+* `rabbitmq_queue`: name of the queue; default `<<"queuemailerl">>`.
 * `retry_count`: optional; default 10.
 * `retry_initial_delay`: The delay for the first retry. This is doubled for
   each retry. This is optional with a default value of 60000.
