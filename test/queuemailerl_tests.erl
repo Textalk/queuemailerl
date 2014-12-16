@@ -7,14 +7,10 @@
 -define(SMTP_PORT, 2525).
 -define(ERROR_SMTP, [{relay, "localhost"}, {port, 25252}]).
 -define(ERROR_FROM, <<"noreply@example.com">>).
--define(RABBITMQ_CONF,
-    [
-     {username, <<"test">>},
-     {password, <<"test">>},
-     {vhost, <<"/test">>},
-     {queue, <<"test">>}
-    ]
-).
+-define(RABBITMQ_CONFIGS, [[{username, <<"test">>},
+                            {password, <<"test">>},
+                            {vhost, <<"/test">>}]]).
+-define(QUEUE, <<"test">>).
 
 %% Macro to silence the error logger. Doesn't seem to work sometimes.
 -define(silence(What), error_logger:tty(false),
@@ -25,7 +21,8 @@ all_test_() ->
      fun () ->
         %% Load, configure and start the queuemailerl app
         application:load(queuemailerl),
-        application:set_env(queuemailerl, rabbitmq, ?RABBITMQ_CONF),
+        application:set_env(queuemailerl, rabbitmq_configs, ?RABBITMQ_CONFIGS),
+        application:set_env(queuemailerl, rabbitmq_queue, ?QUEUE),
         application:set_env(queuemailerl, retry_count, 10),
         application:set_env(queuemailerl, retry_initial_delay, 1),
         application:set_env(queuemailerl, error_smtp, ?ERROR_SMTP),
@@ -43,8 +40,7 @@ all_test_() ->
      end,
      fun (StartedApplications) ->
         %% Delete the test queue
-        RabbitProps = ?RABBITMQ_CONF,
-        QueueDelete = #'queue.delete'{queue = proplists:get_value(queue, RabbitProps)},
+        QueueDelete = #'queue.delete'{queue = ?QUEUE},
         ChannelPid = whereis(test_rabbitmq_send_channel),
         #'queue.delete_ok'{} = amqp_channel:call(ChannelPid, QueueDelete),
 
@@ -95,7 +91,7 @@ successful_email() ->
     %% Wrap it in the RabbitMQ framing and send it
     Publish = #'basic.publish'{
         exchange = <<"amq.direct">>,
-        routing_key = proplists:get_value(queue, ?RABBITMQ_CONF)
+        routing_key = ?QUEUE
     },
     Content = #amqp_msg{payload = jiffy:encode(Event)},
     amqp_channel:cast(whereis(test_rabbitmq_send_channel), Publish, Content),
@@ -138,7 +134,7 @@ smtp_server_restart() ->
     %% Wrap it in the RabbitMQ framing and send it
     Publish = #'basic.publish'{
         exchange = <<"amq.direct">>,
-        routing_key = proplists:get_value(queue, ?RABBITMQ_CONF)
+        routing_key = ?QUEUE
     },
     Content = #amqp_msg{payload = jiffy:encode(Event)},
     amqp_channel:cast(whereis(test_rabbitmq_send_channel), Publish, Content),
@@ -206,7 +202,7 @@ smtp_server_dead() ->
     %% Wrap it in the RabbitMQ framing and send it
     Publish = #'basic.publish'{
         exchange = <<"amq.direct">>,
-        routing_key = proplists:get_value(queue, ?RABBITMQ_CONF)
+        routing_key = ?QUEUE
     },
     Content = #amqp_msg{payload = jiffy:encode(Event)},
     amqp_channel:cast(whereis(test_rabbitmq_send_channel), Publish, Content),
@@ -224,7 +220,7 @@ smtp_server_dead() ->
 %% @doc Make a test connection to the RabbitMQ broker and start a temporary
 %% queue that will be used to publish mails to.
 rabbitmq_test_setup() ->
-    RabbitProps = ?RABBITMQ_CONF,
+    [RabbitProps] = ?RABBITMQ_CONFIGS,
     AmqpConnParams = #amqp_params_network{
         username           = proplists:get_value(username, RabbitProps),
         password           = proplists:get_value(password, RabbitProps),

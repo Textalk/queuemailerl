@@ -24,18 +24,9 @@ get_channel() ->
 %% --- Gen_server callbacks ---
 
 init([]) ->
-    {ok, RabbitProps} = application:get_env(queuemailerl, rabbitmq),
-    AmqpConnParams = #amqp_params_network{
-        username           = proplists:get_value(username, RabbitProps),
-        password           = proplists:get_value(password, RabbitProps),
-        virtual_host       = proplists:get_value(vhost, RabbitProps, <<"/">>),
-        host               = proplists:get_value(host, RabbitProps, "localhost"),
-        port               = proplists:get_value(port, RabbitProps, 5672),
-        heartbeat          = 5,
-        connection_timeout = 60000
-    },
+    {ok, RabbitConfigs} = application:get_env(queuemailerl, rabbitmq_configs),
 
-    {ok, ConnectionPid} = amqp_connection:start(AmqpConnParams),
+    {ok, ConnectionPid} = connect(RabbitConfigs),
     monitor(process, ConnectionPid),
 
     {ok, ChannelPid} = amqp_connection:open_channel(ConnectionPid),
@@ -69,3 +60,30 @@ terminate(_Reason, {ConnectionPid, ChannelPid}) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+%% --- Internal ---
+
+%% Connect to any of the RabbitMQ servers
+-spec connect([list()]) -> {ok, pid()}.
+connect([MQParams | Rest]) ->
+    AmqpConnParams = #amqp_params_network{
+        username           = proplists:get_value(username, MQParams),
+        password           = proplists:get_value(password, MQParams),
+        virtual_host       = proplists:get_value(vhost, MQParams, <<"/">>),
+        host               = proplists:get_value(host, MQParams, "localhost"),
+        port               = proplists:get_value(port, MQParams, 5672),
+        heartbeat          = 5,
+        connection_timeout = 60000
+    },
+    case amqp_connection:start(AmqpConnParams) of
+        {ok, Connection} ->
+            {ok, Connection};
+        {error, Reason} ->
+            error_logger:warning_msg("Unable to connect to RabbitMQ broker"
+                                     " for reason ~p using config ~p.",
+                                     [Reason, MQParams]),
+            connect(Rest)
+    end;
+connect([]) ->
+    error_logger:error_msg("Failed to connect to all RabbitMQ brokers."),
+    error(no_connection_to_mq).

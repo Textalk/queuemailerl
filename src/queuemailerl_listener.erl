@@ -6,12 +6,6 @@
 -behaviour(gen_server).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
-%% Default queue name
--define(DEFAULT_QUEUE, <<"queuemailerl">>).
-
-%% The exchange that the queue is bound to
--define(EXCHANGE, <<"amq.direct">>).
-
 %% Maximum time to wait when subscribing
 -define(SUBSCRIBE_TIMEOUT, 10000).
 
@@ -31,8 +25,8 @@ start_link() ->
 
 init([]) ->
     %% Queue settings
-    {ok, RabbitProps} = application:get_env(queuemailerl, rabbitmq),
-    Queue = proplists:get_value(queue, RabbitProps, ?DEFAULT_QUEUE),
+    {ok, Queue}    = application:get_env(queuemailerl, rabbitmq_queue),
+    {ok, Exchange} = application:get_env(queuemailerl, rabbitmq_exchange),
 
     %% We use the same name for the routing key as the queue name
     RoutingKey = Queue,
@@ -45,7 +39,7 @@ init([]) ->
     #'queue.declare_ok'{} = amqp_channel:call(ChannelPid, QueueDeclare),
 
     %% Bind the queue to the exchange
-    Binding = #'queue.bind'{queue = Queue, exchange = ?EXCHANGE,
+    Binding = #'queue.bind'{queue = Queue, exchange = Exchange,
                             routing_key = RoutingKey},
     #'queue.bind_ok'{} = amqp_channel:call(ChannelPid, Binding),
 
