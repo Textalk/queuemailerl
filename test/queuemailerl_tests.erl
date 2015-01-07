@@ -7,9 +7,9 @@
 -define(SMTP_PORT, 2525).
 -define(ERROR_SMTP, [{relay, "localhost"}, {port, 25252}]).
 -define(ERROR_FROM, <<"noreply@example.com">>).
--define(RABBITMQ_CONFIGS, [[{username, <<"test">>},
-                            {password, <<"test">>},
-                            {vhost, <<"/test">>}]]).
+-define(RABBITMQ_CONFIGS, [[{username, <<"guest">>},
+                            {password, <<"guest">>},
+                            {vhost, <<"/">>}]]).
 -define(QUEUE, <<"test">>).
 
 %% Macro to silence the error logger. Doesn't seem to work sometimes.
