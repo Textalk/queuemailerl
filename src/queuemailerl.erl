@@ -4,11 +4,9 @@
 %%
 %% <ul>
 %%   <li>
-%%     `quemailerl': application module and top level `all_for_one' supervisor,
+%%     `queuemailerl': application module and top level `all_for_one' supervisor,
 %%     supervising the following registered processes:
 %%     <ul>
-%%       <li>`queuemailerl_amqp_mgr': A gen_server serving as a wrapper for
-%%           RabbitMQ connection and channel processes</li>
 %%       <li>`queuemailerl_listener': A gen_server subscribing to a RabbitMQ
 %%           queue. When a message arrives and starting
 %%           `queuemailerl_smtp_worker' jobs.</li>
@@ -43,11 +41,9 @@ stop(_State) ->
 %% @doc Supervisor callback
 init([]) ->
     Procs = [
-        {queuemailerl_amqp_mgr, {queuemailerl_amqp_mgr, start_link, []},
-         permanent, 10, worker, [queuemailerl_amqp_mgr]},
-        {queuemailerl_listener, {queuemailerl_listener, start_link, []},
-         permanent, 10, worker, [queuemailerl_listener]},
         {queuemailerl_smtp_sup, {queuemailerl_smtp_sup, start_link, []},
-         permanent, 10, supervisor, [queuemailerl_smtp_sup]}
+         permanent, 10, supervisor, [queuemailerl_smtp_sup]},
+        {queuemailerl_listener, {queuemailerl_listener, start_link, []},
+         permanent, 10, worker, [queuemailerl_listener]}
     ],
     {ok, {{one_for_all, 10, 10}, Procs}}.

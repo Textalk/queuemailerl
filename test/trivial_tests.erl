@@ -10,13 +10,9 @@ gen_servers_test_() ->
      fun (_) -> error_logger:tty(true) end,
      fun () ->
          %% We silence the error log for these assertions. They talk a lot.
-         ?assertEqual({reply, ok, x}, queuemailerl_amqp_mgr:handle_call(foo, {self(), tag}, x)),
-         ?assertEqual({noreply, x}, queuemailerl_amqp_mgr:handle_cast(foo, x)),
-         ?assertEqual({noreply, x}, queuemailerl_amqp_mgr:handle_info(foo, x)),
-         ?assertEqual({ok, x}, queuemailerl_amqp_mgr:code_change(42, x, foo)),
-
          ?assertError(badarg, queuemailerl_listener:handle_call(foo, {self(), tag}, x)),
          ?assertEqual({noreply, x}, queuemailerl_listener:handle_info(foo, x)),
+         ?assertEqual({ok, x}, queuemailerl_listener:code_change(42, x, foo)),
          ?assertEqual({noreply, x},
                       queuemailerl_listener:handle_info({#'basic.deliver'{},
                                                          #amqp_msg{payload = <<"{}">>}},
