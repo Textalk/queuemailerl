@@ -26,7 +26,7 @@ init([]) ->
     self() ! connect,
     {ok, undefined}.
 
-handle_call(_Call, _From, State) ->
+handle_call(_Call, _From, _State) ->
     error(badarg).
 
 %% @doc When a worker is done, it should cast an {ack, Tag} back to us.
