@@ -12,7 +12,14 @@
 
 -include_lib("amqp_client/include/amqp_client.hrl").
 
--define(TIMEOUT, 10000).
+-define(RECONNECT_TIMEOUT, 10000).
+-define(SUBSCRIPTION_TIMEOUT, 10000).
+
+%% The state is only a connection and a pid to RabbitMQ
+-record(state, {
+          connection :: pid(),
+          channel    :: pid()
+         }).
 
 %% --- Public API ---
 
@@ -24,20 +31,20 @@ start_link() ->
 
 init([]) ->
     self() ! connect,
-    {ok, undefined}.
+    {ok, #state{}}.
 
 handle_call(_Call, _From, _State) ->
     error(badarg).
 
 %% @doc When a worker is done, it should cast an {ack, Tag} back to us.
-handle_cast({ack, Tag}, {_, ChannelPid} = State) ->
+handle_cast({ack, Tag}, #state{channel = Channel} = State) ->
     Acknowledge = #'basic.ack'{delivery_tag = Tag},
-    amqp_channel:cast(ChannelPid, Acknowledge),
+    amqp_channel:cast(Channel, Acknowledge),
     {noreply, State}.
 
 %% @doc Handles incoming messages from RabbitMQ.
 handle_info({#'basic.deliver'{delivery_tag = Tag}, #amqp_msg{payload = Payload}},
-            {_, ChannelPid} = State) ->
+            #state{channel = Channel} = State) ->
     case queuemailerl_event:parse(Payload) of
         {ok, Event} ->
             supervisor:start_child(queuemailerl_smtp_sup, [Tag, Event]);
@@ -53,37 +60,35 @@ handle_info({#'basic.deliver'{delivery_tag = Tag}, #amqp_msg{payload = Payload}}
             %% an ack is sent so that the message will be dropped from
             %% the queue.
             Acknowledge = #'basic.ack'{delivery_tag = Tag},
-            amqp_channel:cast(ChannelPid, Acknowledge)
+            amqp_channel:cast(Channel, Acknowledge)
     end,
     {noreply, State};
 handle_info(#'basic.cancel'{}, State) ->
     %% Rabbit went down. That's nothing to worry about here. Just crash and restart.
     {stop, subscription_canceled, State};
-handle_info(connect, undefined) ->
+handle_info(connect, #state{connection = undefined} = State) ->
     {ok, RabbitConfigs} = application:get_env(queuemailerl, rabbitmq_configs),
     case connect(RabbitConfigs) of
-        {ok, ConnectionPid} ->
-            link(ConnectionPid),
-            {ok, ChannelPid} = amqp_connection:open_channel(ConnectionPid),
-            link(ChannelPid),
+        {ok, Connection} ->
+            link(Connection),
+            {ok, Channel} = amqp_connection:open_channel(Connection),
+            link(Channel),
 
-            ok = setup_subscription(ChannelPid),
+            ok = setup_subscription(Channel),
 
-            {noreply, {ConnectionPid, ChannelPid}};
+            {noreply, State#state{connection = Connection, channel = Channel}};
         {error, no_connection_to_mq} ->
-            erlang:send_after(?TIMEOUT, self(), connect),
-            {noreply, undefined}
+            erlang:send_after(?RECONNECT_TIMEOUT, self(), connect),
+            {noreply, State}
     end;
 handle_info(Info, State) ->
     %% Some other message to the server pid
     error_logger:info_msg("~p ignoring info ~p", [?MODULE, Info]),
     {noreply, State}.
 
-terminate(_Reason, undefined) ->
-    ok;
-terminate(_Reason, {ConnectionPid, ChannelPid}) ->
-    catch amqp_channel:close(ChannelPid),
-    catch amqp_connection:close(ConnectionPid),
+terminate(_Reason, #state{connection = Connection, channel = Channel}) ->
+    catch amqp_channel:close(Channel),
+    catch amqp_connection:close(Connection),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -140,6 +145,6 @@ setup_subscription(ChannelPid) ->
     receive
         #'basic.consume_ok'{consumer_tag = Tag} -> ok
     after
-        ?TIMEOUT -> {error, timeout}
+        ?SUBSCRIPTION_TIMEOUT -> {error, timeout}
     end.
 
