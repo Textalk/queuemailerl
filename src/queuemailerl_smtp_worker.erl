@@ -20,7 +20,7 @@
 -spec start_link(Tag :: term(), Event :: queuemailerl_event:event()) ->
     {ok, pid()} | ignore | {error, term()}.
 start_link(Tag, Event) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [Tag, Event], []).
+    gen_server:start_link(?MODULE, [Tag, Event], []).
 
 %% --- Gen_server callbacks ---
 
@@ -52,6 +52,11 @@ handle_info(retry, State = #state{event = Event, tag = Tag}) ->
     case gen_smtp_client:send_blocking(Mail, Smtp) of
         Receipt when is_binary(Receipt) ->
             %% Successful. We got a receipt from the server.
+            gen_server:cast(queuemailerl_listener, {ack, Tag}),
+            {stop, normal, State};
+        {error, no_more_hosts, {permanent_failure, _Host, _Message}} ->
+            %% Permanent failure i.e wrong username etc. Drop them.
+            send_error_mail(State),
             gen_server:cast(queuemailerl_listener, {ack, Tag}),
             {stop, normal, State};
         {error, _Type, _Message} ->

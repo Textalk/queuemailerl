@@ -63,7 +63,7 @@ build_error_mail_test() ->
                                  [{capture, all_but_first, binary}]),
     {match, [Date]} = re:run(Mail, <<"Date: ([^\\r\\n]*)\r\n">>,
                              [{capture, all_but_first, binary}]),
-    {match, [MessageID]} = re:run(Mail, <<"Message-ID: (<[\\w\.@]+>)\r\n">>,
+    {match, [MessageID]} = re:run(Mail, <<"Message-ID: (<[^>]+>)\r\n">>,
                                   [{capture, all_but_first, binary}]),
     %% TODO: Add the failing SMTP settings (excluding the password).
     ExpectedMail =
