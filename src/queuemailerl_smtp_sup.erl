@@ -10,5 +10,5 @@ start_link() ->
 
 init([]) ->
     ChildSpec = {queuemailerl_smtp_worker, {queuemailerl_smtp_worker, start_link, []},
-                 transient, 10, worker, [queuemailerl_smtp_worker]},
+                 temporary, 10, worker, [queuemailerl_smtp_worker]},
     {ok, {{simple_one_for_one, 1, 10}, [ChildSpec]}}.
