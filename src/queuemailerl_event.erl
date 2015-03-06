@@ -55,13 +55,11 @@ build_error_mail(#event{error = #error{to = To, subject = Subject,
     {ok, ErrorFrom} = application:get_env(queuemailerl, error_from),
 
     %% The message part in a multipart/mixed email.
-    MessagePart = {<<"text">>, <<"plain">>, [],
-                   [{<<"content-type-params">>, [{<<"charset">>, <<"UTF-8">>}]}],
-                   Body},
+    MessagePart = {<<"text">>, <<"plain">>, [], [], Body},
 
     %% The failing mail as an attachment
     Attachement = {<<"message">>, <<"rfc822">>, [],
-                   [{<<"content-type-params">>, [{<<"name">>, <<"Mail">>}, {<<"charset">>, <<"UTF-8">>}]},
+                   [{<<"content-type-params">>, [{<<"name">>, <<"Mail">>}]},
                     {<<"dispisition">>, <<"attachment">>},
                     {<<"disposition-params">>, [{<<"filename">>, <<"Mail.eml">>}]}],
                    OrigMail},
@@ -139,8 +137,7 @@ build_mail(#mail{from = From, to = To, cc = Cc, bcc = Bcc,
     MailFrom = extract_email_address(From),
     RcptTo   = lists:map(fun extract_email_address/1, To ++ Cc ++ Bcc),
 
-    Head = [[<<Key/binary, ": ", Value/binary, "\r\n">>] || {Key, Value} <- Headers3],
-    Email = iolist_to_binary([Head, <<"\r\n">>, Body]),
+    Email = mimemail:encode({<<"text">>, <<"plain">>, Headers3, [], Body}),
 
     {MailFrom, RcptTo, Email}.
 
