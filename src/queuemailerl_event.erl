@@ -55,14 +55,16 @@ build_error_mail(#event{error = #error{to = To, subject = Subject,
     {ok, ErrorFrom} = application:get_env(queuemailerl, error_from),
 
     %% The message part in a multipart/mixed email.
-    MessagePart = {<<"text">>, <<"plain">>, [], [],  Body},
+    MessagePart = {<<"text">>, <<"plain">>, [],
+                   [{<<"content-type-params">>, [{<<"charset">>, <<"UTF-8">>}]}],
+                   Body},
 
     %% The failing mail as an attachment
     Attachement = {<<"message">>, <<"rfc822">>, [],
-                   [{<<"content-type-params">>, [{<<"name">>, <<"Mail">>}]},
+                   [{<<"content-type-params">>, [{<<"name">>, <<"Mail">>}, {<<"charset">>, <<"UTF-8">>}]},
                     {<<"dispisition">>, <<"attachment">>},
                     {<<"disposition-params">>, [{<<"filename">>, <<"Mail.eml">>}]}],
-                   iolist_to_binary(OrigMail)},
+                   OrigMail},
 
     %% The envelope
     ErrorMail = mimemail:encode({<<"multipart">>, <<"mixed">>,
@@ -128,7 +130,7 @@ build_mail(#mail{from = From, to = To, cc = Cc, bcc = Bcc,
     Headers3 = case proplists:is_defined(<<"Date">>, Headers2) of
         false ->
             %% Append header; don't prepend.
-            Date = list_to_binary(smtp_util:rfc5322_timestamp()),
+            Date = unicode:characters_to_binary(smtp_util:rfc5322_timestamp()),
             Headers2 ++ [{<<"Date">>, Date}];
         true ->
             Headers2
@@ -137,7 +139,7 @@ build_mail(#mail{from = From, to = To, cc = Cc, bcc = Bcc,
     MailFrom = extract_email_address(From),
     RcptTo   = lists:map(fun extract_email_address/1, To ++ Cc ++ Bcc),
 
-    Head = [[Key, <<": ">>, Value, <<"\r\n">>] || {Key, Value} <- Headers3],
+    Head = [[<<Key/binary, ": ", Value/binary, "\r\n">>] || {Key, Value} <- Headers3],
     Email = iolist_to_binary([Head, <<"\r\n">>, Body]),
 
     {MailFrom, RcptTo, Email}.
@@ -155,11 +157,11 @@ extract_email_address(Bin) ->
 %% @doc Converts a header field name to "Header-Case", i.e. uppercase first char in each
 %% dash-separated part.
 to_header_case(Binary) ->
-    String = string:to_lower(binary_to_list(Binary)),
+    String = string:to_lower(unicode:characters_to_list(Binary)),
     Tokens = string:tokens(String, "-"),
     HeaderCaseTokens = [[string:to_upper(First) | Rest] || [First|Rest] <- Tokens],
     HeaderCase = string:join(HeaderCaseTokens, "-"),
-    list_to_binary(HeaderCase).
+    unicode:characters_to_binary(HeaderCase).
 
 %% @doc Creates a comma + space separated list
 -spec join([binary()]) -> binary().
