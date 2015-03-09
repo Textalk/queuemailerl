@@ -4,8 +4,8 @@
 
 -define(TEST_EVENT_DATA, {[
         {mail, {[
-            {from, <<"\"Alice\" <alice@example.com>">>},
-            {to, [<<"\"Bob\" <bob@example.com>">>]},
+            {from, <<"Alice <alice@example.com>">>},
+            {to, [<<"Bob <bob@example.com>">>]},
             {'extra-headers', {[
                 {<<"Subject">>, <<"Test">>},
                 {<<"Date">>, <<"Thu, 27 Nov 2014 19:33:09 +0100">>}
@@ -35,14 +35,21 @@ get_mail_test() ->
 
     %% Check the mail itself
     OrigMail =
-        <<"From: \"Alice\" <alice@example.com>\r\n"
-          "To: \"Bob\" <bob@example.com>\r\n"
+        <<"From: Alice <alice@example.com>\r\n"
+          "To: Bob <bob@example.com>\r\n"
           "Subject: Test\r\n"
           "Date: Thu, 27 Nov 2014 19:33:09 +0100\r\n"
+          "MIME-Version: 1.0\r\n"
           "\r\n"
           "TestBody">>,
-    {OrigMail1, Mail1} = isolate_difference(OrigMail, Mail),
-    ?assertEqual(OrigMail1, Mail1).
+
+    %% Remove the Message-ID row since it isn't static
+    {match, [{Start, Length}]} = re:run(Mail, <<"Message-ID: <.*@.*>\r\n">>),
+    MailBeginning = erlang:binary_part(Mail, 0, Start),
+    {_MessageID, MailRest} = erlang:split_binary(Mail, Start+Length),
+    Mail2 = <<MailBeginning/binary, MailRest/binary>>,
+
+    ?assertEqual(OrigMail, Mail2).
 
 build_error_mail_test() ->
     application:set_env(queuemailerl, error_from, <<"noreply@example.com">>),
