@@ -100,7 +100,7 @@ successful_email() ->
     receive
         {From, [To], _Data} -> test_smtp_server:stop()
     after
-        1000 -> error(timeout)
+        10000 -> error(timeout)
     end.
 
 %% Send a mail event over MQ that should be sent. But the SMTP-server is not
