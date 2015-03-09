@@ -30,12 +30,12 @@ The queued message contains an email and the full SMTP settings along with an
 error reporting email address. It is formatted as a JSON object on the form:
 
 ```JSON
-{"mail": {"from": "\"Alice\" <alice@example.com>",
-          "to": ["\"Bob\" <bob@example.com>"],
+{"mail": {"from": "Alice <alice@example.com>",
+          "to": ["Bob <bob@example.com>"],
           "cc": [],
           "bcc": [],
           "extra-headers": {"Subject": "hello",
-                            "Reply-To": "\"John\" <john@example.com>"},
+                            "Reply-To": "John <john@example.com>"},
           "body": "Dear Bob,\n\nI just want to say hello.\n\nAlice"},
  "smtp": {"relay": "localhost",
           "port": 25,
