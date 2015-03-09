@@ -1,12 +1,11 @@
 -module(queuemailerl_smtp_worker).
 
--export([start_link/2]).
+-export([start_link/1]).
 
 -behaviour(gen_server).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -record(state, {
-          tag             :: binary(),                     %% The RabbitMQ tag on the event (used for ack)
           event           :: queuemailerl_event:event(),   %% The email to be sent, etc.
           retry_count = 0 :: non_neg_integer(),            %% Retries so far
           max_retries     :: non_neg_integer() | infinity, %% Maximum number of retries
@@ -17,16 +16,15 @@
 
 %% @doc The Tag is identifying the message in the RabbitMQ queue so that we can
 %% ack it when we are done.
--spec start_link(Tag :: term(), Event :: queuemailerl_event:event()) ->
+-spec start_link(Event :: queuemailerl_event:event()) ->
     {ok, pid()} | ignore | {error, term()}.
-start_link(Tag, Event) ->
-    gen_server:start_link(?MODULE, [Tag, Event], []).
+start_link(Event) ->
+    gen_server:start_link(?MODULE, [Event], []).
 
 %% --- Gen_server callbacks ---
 
-init([Tag, Event]) ->
+init([Event]) ->
     State = #state{
-               tag           = Tag,
                event         = Event,
                max_retries   = application:get_env(queuemailerl, retry_count, 10),
                initial_delay = application:get_env(queuemailerl, retry_initial_delay, 60000)
@@ -45,19 +43,17 @@ handle_cast(_Cast, _State) ->
 %% @doc
 %% TODO: Save error Type and Message in the state and include them in the error
 %% mail when we give up.
-handle_info(retry, State = #state{event = Event, tag = Tag}) ->
+handle_info(retry, State = #state{event = Event}) ->
     %% (Re-)try to send the email.
     Mail = queuemailerl_event:get_mail(Event),
     Smtp = queuemailerl_event:get_smtp_options(Event),
     case gen_smtp_client:send_blocking(Mail, Smtp) of
         Receipt when is_binary(Receipt) ->
             %% Successful. We got a receipt from the server.
-            gen_server:cast(queuemailerl_listener, {ack, Tag}),
             {stop, normal, State};
         {error, no_more_hosts, {permanent_failure, _Host, _Message}} ->
             %% Permanent failure i.e wrong username etc. Drop them.
             send_error_mail(State),
-            gen_server:cast(queuemailerl_listener, {ack, Tag}),
             {stop, normal, State};
         {error, _Type, _Message} ->
             dispatch_retry(State);
@@ -94,7 +90,6 @@ dispatch_retry(State = #state{retry_count = RetryCount,
   when RetryCount >= MaxRetries ->
     send_error_mail(State),
     %% Ack the event to RabbitMQ as we have done everything we could.
-    gen_server:cast(queuemailerl_listener, {ack, State#state.tag}),
     {stop, normal, State}.
 
 send_error_mail(#state{event = Event}) ->

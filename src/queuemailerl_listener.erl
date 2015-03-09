@@ -17,8 +17,9 @@
 
 %% The state is only a connection and a pid to RabbitMQ
 -record(state, {
-          connection :: pid(),
-          channel    :: pid()
+          connection           :: pid(),
+          channel              :: pid(),
+          workers = dict:new() :: dict:dict(pid(), integer())
          }).
 
 %% --- Public API ---
@@ -36,18 +37,27 @@ init([]) ->
 handle_call(_Call, _From, _State) ->
     error(badarg).
 
-%% @doc When a worker is done, it should cast an {ack, Tag} back to us.
-handle_cast({ack, Tag}, #state{channel = Channel} = State) ->
+handle_cast(_Cast, _State) ->
+    error(badarg).
+
+%% @doc When a worker is done, it should exit with reason {done, Tag}.
+handle_info({'DOWN', _MRef, process, Worker, _Reason},
+            #state{channel = Channel, workers = Workers} = State0) ->
+    Tag = dict:fetch(Worker, Workers),
     Acknowledge = #'basic.ack'{delivery_tag = Tag},
     amqp_channel:cast(Channel, Acknowledge),
-    {noreply, State}.
-
+    State1 = State0#state{workers = dict:erase(Worker, Workers)},
+    {noreply, State1};
 %% @doc Handles incoming messages from RabbitMQ.
 handle_info({#'basic.deliver'{delivery_tag = Tag}, #amqp_msg{payload = Payload}},
-            #state{channel = Channel} = State) ->
+            #state{channel = Channel, workers = Workers} = State0) ->
     case queuemailerl_event:parse(Payload) of
         {ok, Event} ->
-            supervisor:start_child(queuemailerl_smtp_sup, [Tag, Event]);
+            %% Start the child and save it's tag in the worker dict
+            {ok, Pid} = supervisor:start_child(queuemailerl_smtp_sup, [Event]),
+            monitor(process, Pid),
+            State1 = State0#state{workers = dict:store(Pid, Tag, Workers)},
+            {noreply, State1};
         {error, Reason} ->
             %% Error when parsing the event, log it then ack it to remove it from the queue
             error_logger:error_msg("Invalid queuemailerl message.~n"
@@ -60,9 +70,10 @@ handle_info({#'basic.deliver'{delivery_tag = Tag}, #amqp_msg{payload = Payload}}
             %% an ack is sent so that the message will be dropped from
             %% the queue.
             Acknowledge = #'basic.ack'{delivery_tag = Tag},
-            amqp_channel:cast(Channel, Acknowledge)
-    end,
-    {noreply, State};
+            amqp_channel:cast(Channel, Acknowledge),
+
+            {noreply, State0}
+    end;
 handle_info(#'basic.cancel'{}, State) ->
     %% Rabbit went down. That's nothing to worry about here. Just crash and restart.
     {stop, subscription_canceled, State};
@@ -147,4 +158,3 @@ setup_subscription(ChannelPid) ->
     after
         ?SUBSCRIPTION_TIMEOUT -> {error, timeout}
     end.
-
