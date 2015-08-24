@@ -9,7 +9,7 @@
            {retry_count, 10},
            {retry_initial_delay, 60000},
            {error_smtp, []}]},
-    {modules, [queuemailerl]},
+    {modules, []},
     {mod, {queuemailerl, []}},
     {registered, [queuemailerl]},
     {applications, [kernel,
