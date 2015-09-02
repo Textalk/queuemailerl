@@ -4,7 +4,19 @@
 -export([parse/1, get_mail/1, get_smtp_options/1, build_error_mail/1]).
 -export_type([event/0]).
 
--record(mail, {from, to, cc, bcc, headers, body}).
+-record(part_headers, {
+          content_type = <<"text/plain">> :: binary(),
+          content_disposition = <<"inline">> :: binary()
+         }).
+-record(part, {headers :: #part_headers{},
+               body :: binary()}).
+-record(mail, {from :: binary(),
+               to :: [binary()],
+               cc :: [binary()],
+               bcc :: [binary()],
+               headers :: [{binary(), binary()}],
+               body :: {'plain', binary()} | {'parts', [#part{}]}
+              }).
 -record(smtp, {relay, port, username, password}).
 -record(error, {to, subject, body}).
 -record(event, {mail, smtp, error}).
@@ -24,7 +36,9 @@ parse(RawEvent) ->
     of
         Event -> {ok, Event}
     catch
-        error:Reason -> {error, Reason}
+        error:Reason ->
+            io:format("Error ~p~nTraceback: ~p", [Reason, erlang:get_stacktrace()]),
+            {error, Reason}
     end.
 
 %% @doc Returns a triple that can as the first argument to
@@ -78,18 +92,41 @@ build_error_mail(#event{error = #error{to = To, subject = Subject,
 
 %% Internal
 
+parse_parts({Part}) ->
+    {Headers0} = proplists:get_value(<<"headers">>, Part, {[]}),
+    Body = proplists:get_value(<<"body">>, Part),
+    Headers1 = lists:foldl(fun ({<<"content-type">>, ContentType}, PH)
+                                 when is_binary(ContentType) ->
+                                   PH#part_headers{content_type = ContentType};
+                               ({<<"content-disposition">>, ContentDisp}, PH)
+                                     when is_binary(ContentDisp) ->
+                                   PH#part_headers{content_disposition = ContentDisp}
+                           end, #part_headers{}, Headers0),
+    #part{body = Body, headers = Headers1}.
+
 parse_mail_part({Props}) ->
     From      = proplists:get_value(<<"from">>, Props),
     To        = proplists:get_value(<<"to">>, Props, []),
     Cc        = proplists:get_value(<<"cc">>, Props, []),
     Bcc       = proplists:get_value(<<"bcc">>, Props, []),
     {Headers} = proplists:get_value(<<"extra-headers">>, Props, []),
-    Body      = proplists:get_value(<<"body">>, Props, <<>>),
+    Body0     = proplists:get_value(<<"body">>, Props, <<>>),
+    Parts     = proplists:get_value(<<"parts">>, Props, []),
     true = is_binary(From),
     true = lists:all(fun is_binary/1, To ++ Cc ++ Bcc),
     true = lists:all(fun ({_Key, Value}) -> is_binary(Value) end, Headers),
-    true = is_binary(Body),
-    #mail{from = From, to = To, cc = Cc, bcc = Bcc, headers = Headers, body = Body}.
+    Body1 = case length(Parts) of
+                0 when size(Body0) /= 0 -> {plain, Body0};
+                0 -> error({bad_mail, <<"Mail has no body">>});
+                _ when size(Body0) == 0 -> {parts, [parse_parts(Part) || Part <- Parts]};
+                _ -> error({bad_mail, <<"Mail contains both parts and body">>})
+             end,
+    #mail{from = From,
+          to = To,
+          cc = Cc,
+          bcc = Bcc,
+          headers = Headers,
+          body = Body1}.
 
 parse_smtp_part({Props}) ->
     Relay    = proplists:get_value(<<"relay">>, Props),
@@ -114,6 +151,34 @@ parse_error_part({Props}) ->
     true = is_binary(Body),
     #error{to = To, subject = Subject, body = Body}.
 
+build_mail_part(#part{body = Body,
+                      headers = #part_headers{
+                                   content_type = ContentType,
+                                   content_disposition = ContentDisp}}) ->
+    [CTMajor, CTMinor0] = binary:split(ContentType, <<"/">>),
+    {CTMinor1, CTParameters0} = case binary:match(CTMinor0, <<";">>) of
+                                   nomatch ->
+                                       {CTMinor0, <<>>};
+                                   _ ->
+                                       [CTMinor2, Params] = binary:split(CTMinor0, <<";">>),
+                                       {CTMinor2, Params}
+                               end,
+    CTParameters1 = lists:foldl(fun (Param, Acc) ->
+                                        case string:strip(binary_to_list(Param)) of
+                                            [] -> Acc;
+                                            New -> [New | Acc]
+                                        end
+                                end, [], binary:split(CTParameters0, <<";">>, [global])),
+    CTParameters2 = lists:map(fun (Param) -> At = string:chr(Param, $\=),
+                                             Key = string:substr(Param, 1, At-1),
+                                             Value = string:substr(Param, At+1),
+                                             {Key, Value}
+                              end, CTParameters1),
+    {CTMajor, CTMinor1, [],
+     [{<<"disposition">>, ContentDisp},
+      {<<"content-type-params">>, CTParameters2}],
+     Body}.
+
 %% @doc See doc for get_mail/1.
 -spec build_mail(#mail{}) ->
     {MailFrom :: binary(), RcptTo :: [binary()], Email :: binary()}.
@@ -137,7 +202,14 @@ build_mail(#mail{from = From, to = To, cc = Cc, bcc = Bcc,
     MailFrom = extract_email_address(From),
     RcptTo   = lists:map(fun extract_email_address/1, To ++ Cc ++ Bcc),
 
-    Email = mimemail:encode({<<"text">>, <<"plain">>, Headers3, [], Body}),
+    Email = case Body of
+                {plain, BodyText} ->
+                    mimemail:encode({<<"text">>, <<"plain">>, Headers3, [], BodyText});
+                {parts, Parts} ->
+                    mimemail:encode({<<"multipart">>, <<"mixed">>,
+                                     Headers3, [],
+                                     [build_mail_part(Part) || Part <- Parts]})
+            end,
 
     {MailFrom, RcptTo, Email}.
 

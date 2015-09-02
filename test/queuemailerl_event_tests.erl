@@ -25,6 +25,92 @@
         ]}}
     ]}).
 
+-define(TEST_EVENT_PARTS_DATA, {[
+        {mail, {[
+            {from, <<"Alice <alice@example.com>">>},
+            {to, [<<"bob@example.com">>]},
+            {'extra-headers', {[
+                {<<"Subject">>, <<"Test">>},
+                {<<"Date">>, <<"Thu, 27 Nov 2014 19:33:09 +0100">>}
+            ]}},
+            {parts, [
+                {[{'headers', {[{'content-type', <<"text/plain">>},
+                                {'content-disposition', <<"inline">>}]}},
+                  {'body', <<"Hello!">>}]},
+                {[{'headers', {[{'content-type', <<"application/json">>},
+                                {'content-disposition', <<"attachment; filename=apa.txt">>}]}},
+                  {'body', <<"{\"foo\": 42}">>}]}
+            ]}
+        ]}},
+        {smtp, {[
+            {relay, <<"dummyrelay">>},
+            {port, 2500},
+            {username, alice},
+            {password, <<"d9Jeaoid9%ud4">>}
+        ]}},
+        {error, {[
+            {to, <<"email-administrator@example.com">>},
+            {subject, <<"Subject in error report mail">>},
+            {body, <<"The message to be sent in the event of error">>}
+        ]}}
+    ]}).
+
+-define(TEST_EVENT_BAD1_DATA, {[
+        {mail, {[
+            {from, <<"Alice <alice@example.com>">>},
+            {to, [<<"bob@example.com">>]},
+            {'extra-headers', {[
+                {<<"Subject">>, <<"Test">>},
+                {<<"Date">>, <<"Thu, 27 Nov 2014 19:33:09 +0100">>}
+            ]}}
+        ]}},
+        {smtp, {[
+            {relay, <<"dummyrelay">>},
+            {port, 2500},
+            {username, alice},
+            {password, <<"d9Jeaoid9%ud4">>}
+        ]}},
+        {error, {[
+            {to, <<"email-administrator@example.com">>},
+            {subject, <<"Subject in error report mail">>},
+            {body, <<"The message to be sent in the event of error">>}
+        ]}}
+    ]}).
+
+-define(TEST_EVENT_BAD2_DATA, {[
+        {mail, {[
+            {from, <<"Alice <alice@example.com>">>},
+            {to, [<<"bob@example.com">>]},
+            {'extra-headers', {[
+                {<<"Subject">>, <<"Test">>},
+                {<<"Date">>, <<"Thu, 27 Nov 2014 19:33:09 +0100">>}
+            ]}},
+            {parts, [
+                {[{'headers', {[{'content-type', <<"text/plain">>}]}},
+                  {'body', <<"Hello!">>}]}
+            ]},
+            {body, <<"Hello">>}
+        ]}},
+        {smtp, {[
+            {relay, <<"dummyrelay">>},
+            {port, 2500},
+            {username, alice},
+            {password, <<"d9Jeaoid9%ud4">>}
+        ]}},
+        {error, {[
+            {to, <<"email-administrator@example.com">>},
+            {subject, <<"Subject in error report mail">>},
+            {body, <<"The message to be sent in the event of error">>}
+        ]}}
+    ]}).
+
+get_bad_mail_test() ->
+    ?assertMatch({error, _},
+                 queuemailerl_event:parse(jiffy:encode(?TEST_EVENT_BAD1_DATA))),
+    ?assertMatch({error, _},
+                 queuemailerl_event:parse(jiffy:encode(?TEST_EVENT_BAD2_DATA))),
+    ok.
+
 get_mail_test() ->
     {ok, Event} = queuemailerl_event:parse(jiffy:encode(?TEST_EVENT_DATA)),
     {From, To, Mail} = queuemailerl_event:get_mail(Event),
@@ -50,6 +136,43 @@ get_mail_test() ->
     Mail2 = <<MailBeginning/binary, MailRest/binary>>,
 
     ?assertEqual(OrigMail, Mail2).
+
+get_parts_mail_test() ->
+    Data = ?TEST_EVENT_PARTS_DATA,
+    {ok, Event} = queuemailerl_event:parse(jiffy:encode(Data)),
+    {_From, _To, Mail} = queuemailerl_event:get_mail(Event),
+    {match, [Boundary]} = re:run(Mail, <<"boundary=\"([^\"]*)\"">>,
+                                 [{capture, all_but_first, binary}]),
+    {match, [MessageID]} = re:run(Mail, <<"Message-ID: (<[^>]+>)\r\n">>,
+                                  [{capture, all_but_first, binary}]),
+    ExpectedMail =
+        <<"From: Alice <alice@example.com>\r\n"
+          "To: bob@example.com\r\n"
+          "Subject: Test\r\n"
+          "Date: Thu, 27 Nov 2014 19:33:09 +0100\r\n"
+          "Content-Type: multipart/mixed;\r\n"
+          "\tboundary=\"", Boundary/binary, "\"\r\n"
+          "MIME-Version: 1.0\r\n"
+          "Message-ID: ", MessageID/binary, "\r\n"
+          "\r\n"
+          "\r\n"
+          "--", Boundary/binary, "\r\n"
+          "Content-Disposition: inline\r\n"
+          "\r\n"
+          "Hello!\r\n"
+          "--", Boundary/binary, "\r\n"
+          "Content-Type: application/json\r\n"
+          "Content-Disposition: attachment;\r\n"
+          "\t filename=apa.txt\r\n"
+          "\r\n",
+          "{\"foo\": 42}\r\n",
+          "--", Boundary/binary, "--\r\n">>,
+
+    {ExpectedMail1, Mail1} = isolate_difference(ExpectedMail, Mail),
+    ?assertEqual(ExpectedMail1, Mail1),
+    ok.
+
+
 
 build_error_mail_test() ->
     application:set_env(queuemailerl, error_from, <<"noreply@example.com">>),
