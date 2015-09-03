@@ -105,9 +105,9 @@
     ]}).
 
 get_bad_mail_test() ->
-    ?assertMatch({error, _},
+    ?assertMatch({error, _, _},
                  queuemailerl_event:parse(jiffy:encode(?TEST_EVENT_BAD1_DATA))),
-    ?assertMatch({error, _},
+    ?assertMatch({error, _, _},
                  queuemailerl_event:parse(jiffy:encode(?TEST_EVENT_BAD2_DATA))),
     ok.
 

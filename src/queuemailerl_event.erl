@@ -37,8 +37,7 @@ parse(RawEvent) ->
         Event -> {ok, Event}
     catch
         error:Reason ->
-            io:format("Error ~p~nTraceback: ~p", [Reason, erlang:get_stacktrace()]),
-            {error, Reason}
+            {error, Reason, erlang:get_stacktrace()}
     end.
 
 %% @doc Returns a triple that can as the first argument to
@@ -115,9 +114,9 @@ parse_mail_part({Props}) ->
     true = is_binary(From),
     true = lists:all(fun is_binary/1, To ++ Cc ++ Bcc),
     true = lists:all(fun ({_Key, Value}) -> is_binary(Value) end, Headers),
-    Body1 = case length(Parts) of
-                0 when size(Body0) /= 0 -> {plain, Body0};
-                0 -> error({bad_mail, <<"Mail has no body">>});
+    Body1 = case Parts of
+                [] when size(Body0) /= 0 -> {plain, Body0};
+                [] -> error({bad_mail, <<"Mail has no body">>});
                 _ when size(Body0) == 0 -> {parts, [parse_parts(Part) || Part <- Parts]};
                 _ -> error({bad_mail, <<"Mail contains both parts and body">>})
              end,
@@ -154,29 +153,35 @@ parse_error_part({Props}) ->
 build_mail_part(#part{body = Body,
                       headers = #part_headers{
                                    content_type = ContentType,
-                                   content_disposition = ContentDisp}}) ->
+                                   content_disposition = ContentDisp
+                                  }
+                     }) ->
     [CTMajor, CTMinor0] = binary:split(ContentType, <<"/">>),
-    {CTMinor1, CTParameters0} = case binary:match(CTMinor0, <<";">>) of
+    {CTMinor1, CTParams0} = case binary:match(CTMinor0, <<";">>) of
                                    nomatch ->
                                        {CTMinor0, <<>>};
                                    _ ->
                                        [CTMinor2, Params] = binary:split(CTMinor0, <<";">>),
                                        {CTMinor2, Params}
                                end,
-    CTParameters1 = lists:foldl(fun (Param, Acc) ->
-                                        case string:strip(binary_to_list(Param)) of
-                                            [] -> Acc;
+    CTParams1 = lists:foldl(fun (Param, Acc) ->
+                                        case Param of
+                                            <<>> -> Acc;
                                             New -> [New | Acc]
                                         end
-                                end, [], binary:split(CTParameters0, <<";">>, [global])),
-    CTParameters2 = lists:map(fun (Param) -> At = string:chr(Param, $\=),
-                                             Key = string:substr(Param, 1, At-1),
-                                             Value = string:substr(Param, At+1),
-                                             {Key, Value}
-                              end, CTParameters1),
+                                end, [],
+                                re:split(CTParams0, <<";">>, [])),
+    CTParams2 = lists:map(
+                  fun (Param) ->
+                          [Key, Value] = re:split(Param,
+                                                  <<"[[:space:]]*=[[:space:]]*">>,
+                                                  [{parts, 2}]),
+                          {Key, Value}
+                  end,
+                  CTParams1),
     {CTMajor, CTMinor1, [],
      [{<<"disposition">>, ContentDisp},
-      {<<"content-type-params">>, CTParameters2}],
+      {<<"content-type-params">>, CTParams2}],
      Body}.
 
 %% @doc See doc for get_mail/1.
