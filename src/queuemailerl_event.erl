@@ -108,7 +108,7 @@ parse_mail_part({Props}) ->
     To        = proplists:get_value(<<"to">>, Props, []),
     Cc        = proplists:get_value(<<"cc">>, Props, []),
     Bcc       = proplists:get_value(<<"bcc">>, Props, []),
-    {Headers} = proplists:get_value(<<"extra-headers">>, Props, []),
+    {Headers} = proplists:get_value(<<"extra-headers">>, Props, {[]}),
     Body0     = proplists:get_value(<<"body">>, Props, <<>>),
     Parts     = proplists:get_value(<<"parts">>, Props, []),
     true = is_binary(From),
