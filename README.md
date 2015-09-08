@@ -34,8 +34,8 @@ error reporting email address. It is formatted as a JSON object on the form:
           "to": ["Bob <bob@example.com>"],
           "cc": [],
           "bcc": [],
-          "extra-headers": {"Subject": "hello",
-                            "Reply-To": "John <john@example.com>"},
+          "subject": "hello",
+          "extra-headers": {"Reply-To": "John <john@example.com>"},
           "body": "Dear Bob,\n\nI just want to say hello.\n\nAlice"},
  "smtp": {"relay": "localhost",
           "port": 25,
@@ -49,20 +49,39 @@ error reporting email address. It is formatted as a JSON object on the form:
 `"from"` is mandatory as is everything in `"error"`. Everything else is
 optional.
 
+`"body"` in `"mail"` can optionally be a list of parts of the folloming format:
+
+```JSON
+{"headers": {"content-type": "text/plain",
+             "content-encoding": "base64",
+             "content-filename": "file.txt",
+             "content-disposition": "attchement"},
+ "body": "..."
+}
+```
+
+Where all the headers are optional and the body can be either a string or, if
+the `"content-type"` is a multipart-type, a list of the same structure. In the
+list case the body is made up of parts. This makes it possible to create a
+recursively defined tree of multipart parts and non-multipart bodies as leaves.
+
 Error handling
 --------------
 
-In the event of error the subproperties of `"error"` are used. An email with
-the contents of `"body"` is sent to `"to"` with the
-subject `"subject"` and the failing email attatched. If there is any
-useful information about what went wrong, this is appended to
-`"body"`. The error message should be a plain text string in UTF-8.
+In the event of error in sending the e-mail the subproperties of `"error"` are
+used. An email with the contents of `"body"` is sent to `"to"` with the subject
+`"subject"` and the failing email attatched. If there is any useful information
+about what went wrong, this is appended to `"body"`. The error message should be
+a plain text string in UTF-8.
 
 Typical errors:
 
 * SMTP server not reachable
 * SMTP server timeout
 * Invalid SMTP username or password
+
+Important note: In the case of an invalid message sent to queuemailerl there
+will be no error mail sent.
 
 Application settings
 --------------------
@@ -85,7 +104,7 @@ The following `env` settings exist for the `queuemailerl` application:
 Tests
 -----
 
-You can run the tests with `rebar skip_deps=true eunit`. RabbitMQ needs to be
-running on localhost with full permissions for the user "test", password "test"
-on the vhost "/test". (Hint: Look at the `.travis.yml` file for how this can be
-set up.)
+You can run the tests with `make tests`. RabbitMQ needs to be running on
+localhost with full permissions for the user "test", password "test" on the
+vhost "/test". (Hint: Look at the `.travis.yml` file for how this can be set
+up.)

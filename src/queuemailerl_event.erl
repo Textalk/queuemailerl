@@ -5,17 +5,21 @@
 -export_type([event/0]).
 
 -record(part_headers, {
-          content_type = <<"text/plain">> :: binary(),
-          content_disposition = <<"inline">> :: binary()
+          content_type               = <<"text/plain">> :: binary(),
+          content_type_params        = []               :: [{binary(), binary()}],
+          content_disposition        = <<"inline">>     :: binary(),
+          content_disposition_params = []               :: [{binary(), binary()}],
+          encoding                   = undefined        :: binary() | 'undefined'
          }).
 -record(part, {headers :: #part_headers{},
-               body :: binary()}).
--record(mail, {from :: binary(),
-               to :: [binary()],
-               cc :: [binary()],
-               bcc :: [binary()],
+               body    :: binary() | [#part{}]
+              }).
+-record(mail, {from    :: binary(),
+               to      :: [binary()],
+               cc      :: [binary()],
+               bcc     :: [binary()],
                headers :: [{binary(), binary()}],
-               body :: {'plain', binary()} | {'parts', [#part{}]}
+               body    :: binary() | [#part{}]
               }).
 -record(smtp, {relay, port, username, password}).
 -record(error, {to, subject, body}).
@@ -91,41 +95,87 @@ build_error_mail(#event{error = #error{to = To, subject = Subject,
 
 %% Internal
 
-parse_parts({Part}) ->
+parse_content_specs(ContentDisposition) ->
+    case binary:split(ContentDisposition, <<";">>) of
+        [Disp] -> {Disp, []};
+        [Disp, Parameters] ->
+            Params = lists:map(
+                       fun (M) ->
+                               case re:split(M, <<"[[:space:]]*=[[:space:]]*">>, [{parts, 2}]) of
+                                   [Key] -> {Key, true};
+                                   [Key, Value] -> {Key, Value}
+                               end
+                       end,
+                       re:split(Parameters, <<"[[:space:]]*(?=[^\\\\]);[[:space:]]*">>)),
+            {Disp, Params}
+    end.
+
+parse_body({Part}) ->
     {Headers0} = proplists:get_value(<<"headers">>, Part, {[]}),
-    Body = proplists:get_value(<<"body">>, Part),
+    Body0 = proplists:get_value(<<"body">>, Part),
     Headers1 = lists:foldl(fun ({<<"content-type">>, ContentType}, PH)
                                  when is_binary(ContentType) ->
-                                   PH#part_headers{content_type = ContentType};
+                                   Params0 = PH#part_headers.content_type_params,
+                                   {CType, Params1} = parse_content_specs(ContentType),
+                                   [CTMajor, CTMinor] = binary:split(CType, <<"/">>),
+                                   PH#part_headers{content_type = {CTMajor, CTMinor},
+                                                   content_type_params = Params0 ++ Params1};
+                               ({<<"content-encoding">>, Encoding}, PH)
+                                 when is_binary(Encoding) ->
+                                   PH#part_headers{encoding = Encoding};
+                               ({<<"content-filename">>, Filename}, PH)
+                                 when is_binary(Filename) ->
+                                   Params = PH#part_headers.content_disposition_params,
+                                   Param = {<<"filename">>, Filename},
+                                   PH#part_headers{content_disposition = <<"attachment">>,
+                                                   content_disposition_params = [Param|Params]};
                                ({<<"content-disposition">>, ContentDisp}, PH)
                                      when is_binary(ContentDisp) ->
-                                   PH#part_headers{content_disposition = ContentDisp}
+                                   Params0 = PH#part_headers.content_disposition_params,
+                                   {Disp, Params1} = parse_content_specs(ContentDisp),
+                                   PH#part_headers{content_disposition = Disp,
+                                                   content_disposition_params = Params0 ++ Params1}
                            end, #part_headers{}, Headers0),
-    #part{body = Body, headers = Headers1}.
+    Body1 = case is_binary(Body0) of
+                %% @todo (2015-09-07) Add sanity check to make sure that content-type correctly set
+                %% depending on the following cases. If false content type needs to be multipart, if
+                %% true it needs to be not multipart.
+                true ->
+                    Body0;
+                false ->
+                    lists:map(fun parse_body/1, Body0)
+            end,
+    #part{headers = Headers1, body = Body1}.
 
 parse_mail_part({Props}) ->
     From      = proplists:get_value(<<"from">>, Props),
     To        = proplists:get_value(<<"to">>, Props, []),
     Cc        = proplists:get_value(<<"cc">>, Props, []),
     Bcc       = proplists:get_value(<<"bcc">>, Props, []),
+    Subject   = proplists:get_value(<<"subject">>, Props, undefined),
     {Headers} = proplists:get_value(<<"extra-headers">>, Props, {[]}),
-    Body0     = proplists:get_value(<<"body">>, Props, <<>>),
-    Parts     = proplists:get_value(<<"parts">>, Props, []),
+    Body0     = proplists:get_value(<<"body">>, Props),
     true = is_binary(From),
     true = lists:all(fun is_binary/1, To ++ Cc ++ Bcc),
     true = lists:all(fun ({_Key, Value}) -> is_binary(Value) end, Headers),
-    Body1 = case Parts of
-                [] when size(Body0) /= 0 -> {plain, Body0};
-                [] -> error({bad_mail, <<"Mail has no body">>});
-                _ when size(Body0) == 0 -> {parts, [parse_parts(Part) || Part <- Parts]};
-                _ -> error({bad_mail, <<"Mail contains both parts and body">>})
-             end,
-    #mail{from = From,
+    Body1 = case is_binary(Body0) of
+                true ->
+                    Body0;
+                false ->
+                    lists:map(fun parse_body/1, Body0)
+            end,
+    Headers1 = case Subject of
+                   undefined -> Headers;
+                   _ when is_binary(Subject) ->
+                       lists:keystore(<<"Subject">>, 1, Headers, {<<"Subject">>, Subject})
+               end,
+    Mail = #mail{from = From,
           to = To,
           cc = Cc,
           bcc = Bcc,
-          headers = Headers,
-          body = Body1}.
+          headers = Headers1,
+          body = Body1},
+    Mail.
 
 parse_smtp_part({Props}) ->
     Relay    = proplists:get_value(<<"relay">>, Props),
@@ -150,49 +200,59 @@ parse_error_part({Props}) ->
     true = is_binary(Body),
     #error{to = To, subject = Subject, body = Body}.
 
-build_mail_part(#part{body = Body,
+build_mail_part(#part{body = Body0,
                       headers = #part_headers{
                                    content_type = ContentType,
-                                   content_disposition = ContentDisp
+                                   content_type_params = CTParams,
+                                   content_disposition = ContentDisp,
+                                   content_disposition_params = CDParams0,
+                                   encoding = Encoding
                                   }
                      }) ->
-    [CTMajor, CTMinor0] = binary:split(ContentType, <<"/">>),
-    {CTMinor1, CTParams0} = case binary:match(CTMinor0, <<";">>) of
-                                   nomatch ->
-                                       {CTMinor0, <<>>};
-                                   _ ->
-                                       [CTMinor2, Params] = binary:split(CTMinor0, <<";">>),
-                                       {CTMinor2, Params}
-                               end,
-    CTParams1 = lists:foldl(fun (Param, Acc) ->
-                                        case Param of
-                                            <<>> -> Acc;
-                                            New -> [New | Acc]
-                                        end
-                                end, [],
-                                re:split(CTParams0, <<";">>, [])),
-    CTParams2 = lists:map(
-                  fun (Param) ->
-                          [Key, Value] = re:split(Param,
-                                                  <<"[[:space:]]*=[[:space:]]*">>,
-                                                  [{parts, 2}]),
-                          {Key, Value}
-                  end,
-                  CTParams1),
-    {CTMajor, CTMinor1, [],
-     [{<<"disposition">>, ContentDisp},
-      {<<"content-type-params">>, CTParams2}],
-     Body}.
+
+    {CTMajor, CTMinor} = ContentType,
+    Body1 = case is_binary(Body0) of
+                true -> Body0;
+                false -> lists:map(fun build_mail_part/1, Body0)
+            end,
+
+    CDParams1 = lists:map(fun ({K, true}) -> K;
+                                          ({K, V}) -> <<K/binary, "=", V/binary>>
+                                      end, CDParams0),
+    CDParams2 = lists:foldl(fun (Param, Rest) ->
+                                    case Rest of
+                                        <<>> -> Param;
+                                        _ -> <<Param/binary, ";", Rest/binary>>
+                                    end
+                            end,
+                            <<>>,
+                            CDParams1),
+
+    ContentDisposition = case CDParams2 of
+                             <<>> -> ContentDisp;
+                             _ -> <<ContentDisp/binary, "; ", CDParams2/binary>>
+                         end,
+    Headers = case Encoding of
+                  undefined -> [];
+                  _ -> [{<<"Content-transfer-encoding">>, Encoding}]
+              end,
+
+    {CTMajor, CTMinor, Headers,
+     [{<<"content-type-params">>, CTParams},
+      {<<"disposition">>, ContentDisposition}],
+     Body1}.
 
 %% @doc See doc for get_mail/1.
 -spec build_mail(#mail{}) ->
     {MailFrom :: binary(), RcptTo :: [binary()], Email :: binary()}.
 build_mail(#mail{from = From, to = To, cc = Cc, bcc = Bcc,
-                 headers = Headers, body = Body}) ->
+                 headers = Headers, body = Body0}) ->
+    CType = proplists:get_value(<<"Content-Type">>, Headers, undefined),
+    Headers0 = proplists:delete(<<"Content-Type">>, Headers),
     Headers1 = [{<<"From">>, From}] ++
                [{<<"To">>, join(To)} || To /= []] ++
                [{<<"Cc">>, join(Cc)} || Cc /= []] ++
-               Headers,
+               Headers0,
 
     Headers2 = [{to_header_case(Header), Value} || {Header, Value} <- Headers1],
     Headers3 = case proplists:is_defined(<<"Date">>, Headers2) of
@@ -207,14 +267,25 @@ build_mail(#mail{from = From, to = To, cc = Cc, bcc = Bcc,
     MailFrom = extract_email_address(From),
     RcptTo   = lists:map(fun extract_email_address/1, To ++ Cc ++ Bcc),
 
-    Email = case Body of
-                {plain, BodyText} ->
-                    mimemail:encode({<<"text">>, <<"plain">>, Headers3, [], BodyText});
-                {parts, Parts} ->
-                    mimemail:encode({<<"multipart">>, <<"mixed">>,
-                                     Headers3, [],
-                                     [build_mail_part(Part) || Part <- Parts]})
+    {CTMajor, CTMinor} = case CType of
+                             undefined -> case is_binary(Body0) of
+                                              true -> {<<"text">>, <<"plain">>};
+                                              false -> {<<"multipart">>, <<"mixed">>}
+                                          end;
+                             _ when is_binary(CType) ->
+                                 [Maj, Min] = binary:split(CType, <<"/">>),
+                                 {Maj, Min}
+                         end,
+    Body1 = case is_binary(Body0) of
+                true ->
+                    Body0;
+                false ->
+                    [build_mail_part(Part) || Part <- Body0]
             end,
+
+    Email = mimemail:encode({CTMajor, CTMinor, Headers3, [], Body1}),
+
+    io:format("Mail: ~p~n", [Email]),
 
     {MailFrom, RcptTo, Email}.
 
