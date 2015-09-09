@@ -58,13 +58,13 @@ handle_info({#'basic.deliver'{delivery_tag = Tag}, #amqp_msg{payload = Payload}}
             monitor(process, Pid),
             State1 = State0#state{workers = dict:store(Pid, Tag, Workers)},
             {noreply, State1};
-        {error, Reason} ->
+        {error, Reason, Stacktrace} ->
             %% Error when parsing the event, log it then ack it to remove it from the queue
             error_logger:error_msg("Invalid queuemailerl message.~n"
                                    "Payload: ~p~n"
                                    "Reason: ~p~n"
                                    "Trace: ~p~n",
-                                   [Payload, Reason, erlang:get_stacktrace()]),
+                                   [Payload, Reason, Stacktrace]),
 
             %% Since we consider the message invalid if this happens
             %% an ack is sent so that the message will be dropped from

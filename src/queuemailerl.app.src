@@ -2,6 +2,8 @@
     {description, "Deliver emails from RabbitMQ to multiple SMTP servers"},
     {vsn, "0.1.0"},
     {env, [{rabbitmq_configs, [[{vhost, <<"/">>},
+                                {username, <<"guest">>},
+                                {password, <<"guest">>},
                                 {host, "localhost"},
                                 {port, 5672}]]},
            {rabbitmq_queue, <<"queuemailerl">>},
@@ -14,6 +16,7 @@
     {registered, [queuemailerl]},
     {applications, [kernel,
                     stdlib,
+                    jiffy,
                     amqp_client,
                     rabbit_common,
                     gen_smtp]}
