@@ -10,3 +10,4 @@ rel/example_project
 .rebar
 _rel/
 logs/
+Session.vim

@@ -151,7 +151,7 @@ parts_mail_1(_Config) ->
                      "Content-Disposition: inline\r\n"
                      "\r\n" "<html></html>\r\n" "--_2_--\r\n" "\r\n" "--_1_\r\n"
                      "Content-Type: image/png\r\n"
-                     "Content-Disposition: attachment;\r\n" "\t filename=test.png\r\n" "\r\n"
+                     "Content-Disposition: attachment;\r\n" "\t filename=\"test.png\"\r\n" "\r\n"
                      "ABCDEF==\r\n" "--_1_--\r\n">>,
     {Diff1, Diff2} = isolate_difference(ExpectedMail, Mail3),
     ?assertEqual(Diff1, <<>>),

@@ -16,6 +16,7 @@
     {registered, [queuemailerl]},
     {applications, [kernel,
                     stdlib,
+                    jiffy,
                     amqp_client,
                     rabbit_common,
                     gen_smtp]}

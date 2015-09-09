@@ -11,19 +11,34 @@
           content_disposition_params = []               :: [{binary(), binary()}],
           encoding                   = undefined        :: binary() | 'undefined'
          }).
--record(part, {headers :: #part_headers{},
-               body    :: binary() | [#part{}]
-              }).
--record(mail, {from    :: binary(),
-               to      :: [binary()],
-               cc      :: [binary()],
-               bcc     :: [binary()],
-               headers :: [{binary(), binary()}],
-               body    :: binary() | [#part{}]
-              }).
--record(smtp, {relay, port, username, password}).
--record(error, {to, subject, body}).
--record(event, {mail, smtp, error}).
+-record(part, {
+          headers :: #part_headers{},
+          body    :: binary() | [#part{}]
+         }).
+-record(mail, {
+          from    :: binary(),
+          to      :: [binary()],
+          cc      :: [binary()],
+          bcc     :: [binary()],
+          headers :: [{binary(), binary()}],
+          body    :: binary() | [#part{}]
+         }).
+-record(smtp, {
+          relay    :: binary(),
+          port     :: non_neg_integer(),
+          username :: binary(),
+          password :: binary()
+         }).
+-record(error, {
+          to      :: binary(),
+          subject :: binary(),
+          body    :: binary()
+         }).
+-record(event, {
+          mail  :: #mail{},
+          smtp  :: #smtp{},
+          error :: #error{}
+         }).
 
 -opaque event() :: #event{}.
 
@@ -32,7 +47,7 @@
 parse(RawEvent) ->
     try
         {Props} = jiffy:decode(RawEvent),
-        MailRecord = parse_mail_part(proplists:get_value(<<"mail">>, Props)),
+        MailRecord = parse_mail(proplists:get_value(<<"mail">>, Props)),
         Mail = build_mail(MailRecord),
         #event{mail = Mail,
                smtp = parse_smtp_part(proplists:get_value(<<"smtp">>, Props)),
@@ -111,50 +126,63 @@ parse_content_specs(ContentDisposition) ->
     end.
 
 parse_body({Part}) ->
-    {Headers0} = proplists:get_value(<<"headers">>, Part, {[]}),
+    Headers0 = case proplists:get_value(<<"headers">>, Part, {[]}) of
+                     {H0} -> H0;
+                     [] -> []
+                 end,
     Body0 = proplists:get_value(<<"body">>, Part),
-    Headers1 = lists:foldl(fun ({<<"content-type">>, ContentType}, PH)
-                                 when is_binary(ContentType) ->
-                                   Params0 = PH#part_headers.content_type_params,
-                                   {CType, Params1} = parse_content_specs(ContentType),
-                                   [CTMajor, CTMinor] = binary:split(CType, <<"/">>),
-                                   PH#part_headers{content_type = {CTMajor, CTMinor},
-                                                   content_type_params = Params0 ++ Params1};
-                               ({<<"content-encoding">>, Encoding}, PH)
-                                 when is_binary(Encoding) ->
-                                   PH#part_headers{encoding = Encoding};
-                               ({<<"content-filename">>, Filename}, PH)
-                                 when is_binary(Filename) ->
-                                   Params = PH#part_headers.content_disposition_params,
-                                   Param = {<<"filename">>, Filename},
-                                   PH#part_headers{content_disposition = <<"attachment">>,
-                                                   content_disposition_params = [Param|Params]};
-                               ({<<"content-disposition">>, ContentDisp}, PH)
-                                     when is_binary(ContentDisp) ->
-                                   Params0 = PH#part_headers.content_disposition_params,
-                                   {Disp, Params1} = parse_content_specs(ContentDisp),
-                                   PH#part_headers{content_disposition = Disp,
-                                                   content_disposition_params = Params0 ++ Params1}
-                           end, #part_headers{}, Headers0),
+    Headers1 = lists:foldl(
+                 fun ({<<"content-type">>, ContentType}, PH)
+                       when is_binary(ContentType) ->
+                         Params0 = PH#part_headers.content_type_params,
+                         {CType, Params1} = parse_content_specs(ContentType),
+                         [CTMajor, CTMinor] = binary:split(CType, <<"/">>),
+                         PH#part_headers{content_type = {CTMajor, CTMinor},
+                                         content_type_params = Params0 ++ Params1};
+                     ({<<"content-encoding">>, Encoding}, PH)
+                       when is_binary(Encoding) ->
+                         PH#part_headers{encoding = Encoding};
+                     ({<<"content-filename">>, Filename}, PH)
+                       when is_binary(Filename) ->
+                         QFilename = <<"\"", Filename/binary, "\"">>,
+                         Params = PH#part_headers.content_disposition_params,
+                         Param = {<<"filename">>, QFilename},
+                         PH#part_headers{
+                           content_disposition = <<"attachment">>,
+                           content_disposition_params = [Param|Params]
+                          };
+                     ({<<"content-disposition">>, ContentDisp}, PH)
+                       when is_binary(ContentDisp) ->
+                         Params0 = PH#part_headers.content_disposition_params,
+                         {Disp, Params1} = parse_content_specs(ContentDisp),
+                         PH#part_headers{content_disposition = Disp,
+                                         content_disposition_params = Params0 ++ Params1}
+                 end, #part_headers{}, Headers0),
     Body1 = case is_binary(Body0) of
                 %% @todo (2015-09-07) Add sanity check to make sure that content-type correctly set
                 %% depending on the following cases. If false content type needs to be multipart, if
                 %% true it needs to be not multipart.
                 true ->
-                    Body0;
+                    case Headers1#part_headers.encoding of
+                        <<"base64">> -> base64:decode(Body0);
+                        _ -> Body0
+                    end;
                 false ->
                     lists:map(fun parse_body/1, Body0)
             end,
     #part{headers = Headers1, body = Body1}.
 
-parse_mail_part({Props}) ->
-    From      = proplists:get_value(<<"from">>, Props),
-    To        = proplists:get_value(<<"to">>, Props, []),
-    Cc        = proplists:get_value(<<"cc">>, Props, []),
-    Bcc       = proplists:get_value(<<"bcc">>, Props, []),
-    Subject   = proplists:get_value(<<"subject">>, Props, undefined),
-    {Headers} = proplists:get_value(<<"extra-headers">>, Props, {[]}),
-    Body0     = proplists:get_value(<<"body">>, Props),
+parse_mail({Props}) ->
+    From    = proplists:get_value(<<"from">>, Props),
+    To      = proplists:get_value(<<"to">>, Props, []),
+    Cc      = proplists:get_value(<<"cc">>, Props, []),
+    Bcc     = proplists:get_value(<<"bcc">>, Props, []),
+    Subject = proplists:get_value(<<"subject">>, Props, undefined),
+    Headers = case proplists:get_value(<<"extra-headers">>, Props, {[]}) of
+                  {H0} -> H0;
+                  [] -> []
+              end,
+    Body0   = proplists:get_value(<<"body">>, Props),
     true = is_binary(From),
     true = lists:all(fun is_binary/1, To ++ Cc ++ Bcc),
     true = lists:all(fun ({_Key, Value}) -> is_binary(Value) end, Headers),
@@ -165,16 +193,19 @@ parse_mail_part({Props}) ->
                     lists:map(fun parse_body/1, Body0)
             end,
     Headers1 = case Subject of
-                   undefined -> Headers;
+                   undefined ->
+                       Headers;
                    _ when is_binary(Subject) ->
                        lists:keystore(<<"Subject">>, 1, Headers, {<<"Subject">>, Subject})
                end,
-    Mail = #mail{from = From,
-          to = To,
-          cc = Cc,
-          bcc = Bcc,
-          headers = Headers1,
-          body = Body1},
+    Mail = #mail{
+              from = From,
+              to = To,
+              cc = Cc,
+              bcc = Bcc,
+              headers = Headers1,
+              body = Body1
+             },
     Mail.
 
 parse_smtp_part({Props}) ->
@@ -234,7 +265,7 @@ build_mail_part(#part{body = Body0,
                          end,
     Headers = case Encoding of
                   undefined -> [];
-                  _ -> [{<<"Content-transfer-encoding">>, Encoding}]
+                  _ -> [{<<"Content-Transfer-Encoding">>, Encoding}]
               end,
 
     {CTMajor, CTMinor, Headers,
@@ -284,8 +315,6 @@ build_mail(#mail{from = From, to = To, cc = Cc, bcc = Bcc,
             end,
 
     Email = mimemail:encode({CTMajor, CTMinor, Headers3, [], Body1}),
-
-    io:format("Mail: ~p~n", [Email]),
 
     {MailFrom, RcptTo, Email}.
 
