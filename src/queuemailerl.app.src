@@ -1,6 +1,6 @@
 {application, queuemailerl, [
     {description, "Deliver emails from RabbitMQ to multiple SMTP servers"},
-    {vsn, "0.1.0"},
+    {vsn, "0.2.0"},
     {env, [{rabbitmq_configs, [[{vhost, <<"/">>},
                                 {username, <<"guest">>},
                                 {password, <<"guest">>},
