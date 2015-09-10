@@ -49,7 +49,7 @@ error reporting email address. It is formatted as a JSON object on the form:
 `"from"` is mandatory as is everything in `"error"`. Everything else is
 optional.
 
-`"body"` in `"mail"` can optionally be a list of parts of the folloming format:
+`"body"` in `"mail"` can optionally be a list of parts of the following format:
 
 ```JSON
 {"headers": {"content-type": "text/plain",
