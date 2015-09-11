@@ -7,12 +7,14 @@
 -export([simple_mail_1/1]).
 -export([simple_mail_2/1]).
 -export([parts_mail_1/1]).
+-export([parts_mail_2/1]).
 -export([error_mail_1/1]).
 
 all() -> [
           simple_mail_1,
           simple_mail_2,
           parts_mail_1,
+          parts_mail_2,
           error_mail_1
          ].
 
@@ -145,7 +147,9 @@ parts_mail_1(_Config) ->
                      "MIME-Version: 1.0\r\n" "Message-ID: _\r\n" "\r\n" "\r\n"
                      "--_1_\r\n" "Content-Type: multipart/alternative;\r\n"
                      "\tboundary=\"_2_\"\r\n" "Content-Disposition: inline\r\n"
-                     "\r\n" "\r\n" "--_2_\r\n" "Content-Disposition: inline\r\n"
+                     "\r\n" "\r\n" "--_2_\r\n"
+                     "Content-Type: text/plain;\r\n" "\tcharset=utf-8\r\n"
+                     "Content-Disposition: inline\r\n"
                      "\r\n" "Plain text\r\n" "--_2_\r\n"
                      "Content-Type: text/html;\r\n" "\tcharset=us-ascii\r\n"
                      "Content-Disposition: inline\r\n"
@@ -154,6 +158,60 @@ parts_mail_1(_Config) ->
                      "Content-Disposition: attachment;\r\n" "\t filename=\"test.png\"\r\n" "\r\n"
                      "ABCDEF==\r\n" "--_1_--\r\n">>,
     {Diff1, Diff2} = isolate_difference(ExpectedMail, Mail3),
+    ?assertEqual(Diff1, Diff2),
+    ?assertEqual(Diff1, <<>>),
+    ?assertEqual(Diff2, <<>>),
+    ok.
+
+parts_mail_2(_Config) ->
+    TestMail = <<"{"
+                 "  \"mail\": {"
+                 "    \"from\": \"A B <a.b@c.se>\", \"to\": [\"z.u@d.se\"],"
+                 "    \"extra-headers\": { },"
+                 "    \"body\": ["
+                 "      {"
+                 "        \"headers\": { \"content-type\": \"multipart/alternative\" },"
+                 "        \"body\": ["
+                 "          {"
+                 "            \"headers\": {"
+                 "              \"content-type\": \"text/plain; charset=utf-8\""
+                 "          },"
+                 "            \"body\": \"Plain text\""
+                 "          },"
+                 "          {"
+                 "            \"headers\": { \"content-type\": \"text/html\" },"
+                 "            \"body\": \"<html></html>\""
+                 "          }"
+                 "        ]"
+                 "      }"
+                 "    ]"
+                 "  },"
+                 "  \"smtp\": {"
+                 "    \"relay\": \"smtp.nowhere.test\", \"port\": 25,"
+                 "    \"username\": \"nobody\",\"password\": \"secret\""
+                 "  },"
+                 "  \"error\": {"
+                 "    \"to\": \"<admin@c.se>\","
+                 "    \"subject\": \"This is a subject\","
+                 "    \"body\": \"This is a message\""
+                 "  }"
+                 "}">>,
+    {ok, {event, {_From, _To, Mail}, _SMTP, _ErrorInfo}} = queuemailerl_event:parse(TestMail),
+
+    Mail3 = clean_up_mail(Mail),
+
+    ExpectedMail = <<"From: A B <a.b@c.se>\r\n" "To: z.u@d.se\r\n" "Date: _\r\n"
+                     "Content-Type: multipart/alternative;\r\n" "\tboundary=\"_1_\"\r\n"
+                     "MIME-Version: 1.0\r\n" "Message-ID: _\r\n" "\r\n" "\r\n"
+                     "--_1_\r\n"
+                     "Content-Type: text/plain;\r\n" "\tcharset=utf-8\r\n"
+                     "Content-Disposition: inline\r\n"
+                     "\r\n" "Plain text\r\n" "--_1_\r\n"
+                     "Content-Type: text/html;\r\n" "\tcharset=us-ascii\r\n"
+                     "Content-Disposition: inline\r\n"
+                     "\r\n" "<html></html>\r\n" "--_1_--\r\n">>,
+    {Diff1, Diff2} = isolate_difference(ExpectedMail, Mail3),
+    ?assertEqual(Diff1, Diff2),
     ?assertEqual(Diff1, <<>>),
     ?assertEqual(Diff2, <<>>),
     ok.
@@ -205,6 +263,8 @@ error_mail_1(_Config) ->
                    "\tfilename=Mail.eml\r\n"
                    "\r\n">>,
     {Diff1, Diff2} = isolate_difference(ExpectedMail, Mail1),
+    %% ?assertEqual(Diff1, Diff2), IMPORTANT: Diff2 will contain a dump of the original message and
+    %% therefor not be empty like Diff1, so we do not want to compare them.
     ?assertEqual(Diff1, <<>>),
     {Diff3, Diff4} = isolate_difference(OrigMail, Diff2),
     ?assertEqual(Diff3, <<>>),
