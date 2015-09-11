@@ -263,8 +263,6 @@ error_mail_1(_Config) ->
                    "\tfilename=Mail.eml\r\n"
                    "\r\n">>,
     {Diff1, Diff2} = isolate_difference(ExpectedMail, Mail1),
-    %% ?assertEqual(Diff1, Diff2), IMPORTANT: Diff2 will contain a dump of the original message and
-    %% therefor not be empty like Diff1, so we do not want to compare them.
     ?assertEqual(Diff1, <<>>),
     {Diff3, Diff4} = isolate_difference(OrigMail, Diff2),
     ?assertEqual(Diff3, <<>>),

@@ -353,9 +353,6 @@ build_mail(#mail{from = From, to = To, cc = Cc, bcc = Bcc,
 
     Email = mimemail:encode(CompressedMail),
 
-    io:format("Message: ~p~n", [CompressedMail]),
-    io:format("Mail: ~p~n", [Email]),
-
     {MailFrom, RcptTo, Email}.
 
 %% @doc Returns a binary on the form `<<"<email@example.com>">>'.
