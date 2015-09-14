@@ -110,10 +110,17 @@ build_error_mail(#event{error = #error{to = To, subject = Subject,
 
 %% Internal
 
+trim_binary(<<" ", Rest/binary>>) ->
+    trim_binary(Rest);
+trim_binary(Done) ->
+    Done.
+
 parse_content_specs(ContentDisposition) ->
     case binary:split(ContentDisposition, <<";">>) of
         [Disp] -> {Disp, []};
         [Disp, Parameters] ->
+            RawParams0 = re:split(Parameters, <<"[[:space:]]*(?=[^\\\\]);[[:space:]]*">>),
+            RawParams1 = [trim_binary(RawParam) || RawParam <- RawParams0],
             Params = lists:map(
                        fun (M) ->
                                case re:split(M, <<"[[:space:]]*=[[:space:]]*">>, [{parts, 2}]) of
@@ -121,9 +128,20 @@ parse_content_specs(ContentDisposition) ->
                                    [Key, Value] -> {Key, Value}
                                end
                        end,
-                       re:split(Parameters, <<"[[:space:]]*(?=[^\\\\]);[[:space:]]*">>)),
+                       RawParams1),
             {Disp, Params}
     end.
+
+ensure_text_encoding(Headers = #part_headers{content_type = {<<"text">>, <<"plain">>},
+                                             content_type_params = Params}) ->
+    case proplists:get_value(<<"charset">>, Params, undefined) of
+        undefined -> Headers#part_headers{
+                       content_type_params = lists:keystore(<<"charset">>, 1, Params,
+                                                            {<<"charset">>, <<"utf-8">>})};
+        _ -> Headers
+    end;
+ensure_text_encoding(Headers) ->
+    Headers.
 
 parse_body({Part}) ->
     Headers0 = case proplists:get_value(<<"headers">>, Part, {[]}) of
@@ -158,19 +176,20 @@ parse_body({Part}) ->
                          PH#part_headers{content_disposition = Disp,
                                          content_disposition_params = Params0 ++ Params1}
                  end, #part_headers{}, Headers0),
+    Headers2 = ensure_text_encoding(Headers1),
     Body1 = case is_binary(Body0) of
                 %% @todo (2015-09-07) Add sanity check to make sure that content-type correctly set
                 %% depending on the following cases. If false content type needs to be multipart, if
                 %% true it needs to be not multipart.
                 true ->
-                    case Headers1#part_headers.encoding of
+                    case Headers2#part_headers.encoding of
                         <<"base64">> -> base64:decode(Body0);
                         _ -> Body0
                     end;
                 false ->
                     lists:map(fun parse_body/1, Body0)
             end,
-    #part{headers = Headers1, body = Body1}.
+    #part{headers = Headers2, body = Body1}.
 
 parse_mail({Props}) ->
     From    = proplists:get_value(<<"from">>, Props),
@@ -269,9 +288,22 @@ build_mail_part(#part{body = Body0,
               end,
 
     {CTMajor, CTMinor, Headers,
-     [{<<"content-type-params">>, CTParams},
-      {<<"disposition">>, ContentDisposition}],
+     [{<<"content-type-params">>, CTParams}]
+     ++ [{<<"disposition">>, ContentDisposition} || ContentDisposition /= <<"inline">>],
      Body1}.
+
+simplify_mail(CType, Headers, Options, Body) when is_binary(CType) ->
+    [Maj, Min] = binary:split(CType, <<"/">>),
+    simplify_mail({Maj, Min}, Headers, Options, Body);
+simplify_mail(undefined, Headers, Options, Body) when is_binary(Body) ->
+    {<<"text">>, <<"plain">>, Headers, Options, Body};
+simplify_mail(undefined, Headers, Options,
+              [{PartMajor, PartMinor, PartHeaders, PartOptions, PartBody}]) ->
+    {PartMajor, PartMinor, Headers ++ PartHeaders, Options ++ PartOptions, PartBody};
+simplify_mail(undefined, Headers, Options, Body) ->
+    {<<"multipart">>, <<"mixed">>, Headers, Options, Body};
+simplify_mail({Major, Minor}, Headers, Options, Body) ->
+    {Major, Minor, Headers, Options, Body}.
 
 %% @doc See doc for get_mail/1.
 -spec build_mail(#mail{}) ->
@@ -284,6 +316,7 @@ build_mail(#mail{from = From, to = To, cc = Cc, bcc = Bcc,
                [{<<"To">>, join(To)} || To /= []] ++
                [{<<"Cc">>, join(Cc)} || Cc /= []] ++
                Headers0,
+    Options0 = [],
 
     Headers2 = [{to_header_case(Header), Value} || {Header, Value} <- Headers1],
     Headers3 = case proplists:is_defined(<<"Date">>, Headers2) of
@@ -298,15 +331,6 @@ build_mail(#mail{from = From, to = To, cc = Cc, bcc = Bcc,
     MailFrom = extract_email_address(From),
     RcptTo   = lists:map(fun extract_email_address/1, To ++ Cc ++ Bcc),
 
-    {CTMajor, CTMinor} = case CType of
-                             undefined -> case is_binary(Body0) of
-                                              true -> {<<"text">>, <<"plain">>};
-                                              false -> {<<"multipart">>, <<"mixed">>}
-                                          end;
-                             _ when is_binary(CType) ->
-                                 [Maj, Min] = binary:split(CType, <<"/">>),
-                                 {Maj, Min}
-                         end,
     Body1 = case is_binary(Body0) of
                 true ->
                     Body0;
@@ -314,7 +338,9 @@ build_mail(#mail{from = From, to = To, cc = Cc, bcc = Bcc,
                     [build_mail_part(Part) || Part <- Body0]
             end,
 
-    Email = mimemail:encode({CTMajor, CTMinor, Headers3, [], Body1}),
+    CompressedMail = simplify_mail(CType, Headers3, Options0, Body1),
+
+    Email = mimemail:encode(CompressedMail),
 
     {MailFrom, RcptTo, Email}.
 
