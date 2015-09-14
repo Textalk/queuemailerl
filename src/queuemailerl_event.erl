@@ -110,26 +110,17 @@ build_error_mail(#event{error = #error{to = To, subject = Subject,
 
 %% Internal
 
-trim_binary(Bin, Junks)
-  when is_list(Junks) ->
-    lists:foldl(fun (Bin0, Junk) ->
-                        trim_binary(Bin0, Junk)
-                end, Bin, Junks);
-trim_binary(Bin, Junk) ->
-    case binary:match(Bin, Junk) of
-        {0, X} ->
-            <<_:X/binary, Rest/binary>> = Bin,
-            trim_binary(Rest, Junk);
-        _ ->
-            Bin
-    end.
+trim_binary(<<" ", Rest/binary>>) ->
+    trim_binary(Rest);
+trim_binary(Done) ->
+    Done.
 
 parse_content_specs(ContentDisposition) ->
     case binary:split(ContentDisposition, <<";">>) of
         [Disp] -> {Disp, []};
         [Disp, Parameters] ->
             RawParams0 = re:split(Parameters, <<"[[:space:]]*(?=[^\\\\]);[[:space:]]*">>),
-            RawParams1 = [trim_binary(RawParam, <<" ">>) || RawParam <- RawParams0],
+            RawParams1 = [trim_binary(RawParam) || RawParam <- RawParams0],
             Params = lists:map(
                        fun (M) ->
                                case re:split(M, <<"[[:space:]]*=[[:space:]]*">>, [{parts, 2}]) of
@@ -304,15 +295,13 @@ build_mail_part(#part{body = Body0,
 simplify_mail(CType, Headers, Options, Body) when is_binary(CType) ->
     [Maj, Min] = binary:split(CType, <<"/">>),
     simplify_mail({Maj, Min}, Headers, Options, Body);
+simplify_mail(undefined, Headers, Options, Body) when is_binary(Body) ->
+    {<<"text">>, <<"plain">>, Headers, Options, Body};
+simplify_mail(undefined, Headers, Options,
+              [{PartMajor, PartMinor, PartHeaders, PartOptions, PartBody}]) ->
+    {PartMajor, PartMinor, Headers ++ PartHeaders, Options ++ PartOptions, PartBody};
 simplify_mail(undefined, Headers, Options, Body) ->
-    case Body of
-        _ when is_binary(Body) ->
-            {<<"text">>, <<"plain">>, Headers, Options, Body};
-        [{PartMajor, PartMinor, PartHeaders, PartOptions, PartBody}] ->
-            {PartMajor, PartMinor, Headers ++ PartHeaders, Options ++ PartOptions, PartBody};
-        _ ->
-            {<<"multipart">>, <<"mixed">>, Headers, Options, Body}
-    end;
+    {<<"multipart">>, <<"mixed">>, Headers, Options, Body};
 simplify_mail({Major, Minor}, Headers, Options, Body) ->
     {Major, Minor, Headers, Options, Body}.
 
