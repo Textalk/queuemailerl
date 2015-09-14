@@ -6,6 +6,8 @@
 
 -export([simple_mail_1/1]).
 -export([simple_mail_2/1]).
+-export([utf8_mail_1/1]).
+-export([utf8_mail_2/1]).
 -export([parts_mail_1/1]).
 -export([parts_mail_2/1]).
 -export([error_mail_1/1]).
@@ -13,6 +15,8 @@
 all() -> [
           simple_mail_1,
           simple_mail_2,
+          utf8_mail_1,
+          utf8_mail_2,
           parts_mail_1,
           parts_mail_2,
           error_mail_1
@@ -98,6 +102,125 @@ simple_mail_2(_Config) ->
                      "\r\n"
                      "Not empty">>,
     ?assertEqual(isolate_difference(Mail1, ExpectedMail), {<<>>, <<>>}),
+    ok.
+
+%% @doc This tests short mails with embeded UTF-8 characters, these will be base64 encoded.
+%% @end
+utf8_mail_1(_Config) ->
+    TestMail = unicode:characters_to_binary(
+                 "{"
+                 "  \"mail\": {"
+                 "    \"from\": \"A B <a.b@c.se>\","
+                 "    \"to\": [\"z.u@d.se\", \"Y V <y.v@d.se>\"], \"cc\": [\"<q.r@d.se>\"],"
+                 "    \"extra-headers\": { },"
+                 "    \"body\": \"Räksmörgås\""
+                 "  },"
+                 "  \"smtp\": {"
+                 "    \"relay\": \"smtp.nowhere.test\", \"port\": 25,"
+                 "    \"username\": \"nobody\", \"password\": \"secret\""
+                 "  },"
+                 "  \"error\": {"
+                 "    \"to\": \"<admin@c.se>\","
+                 "    \"subject\": \"This is a subject\","
+                 "    \"body\": \"This is a message\""
+                 "  }"
+                 "}", utf8),
+    Base64Body = list_to_binary(base64:encode_to_string(<<"Räksmörgås"/utf8>>)),
+    {ok, {event, {_From, _To, Mail}, _SMTP, _ERROR}} = queuemailerl_event:parse(TestMail),
+
+    Mail2 = clean_up_mail(Mail),
+
+    ExpectedMail = <<"From: A B <a.b@c.se>\r\n"
+                     "To: z.u@d.se, Y V <y.v@d.se>\r\n"
+                     "Cc: q.r@d.se\r\n"
+                     "Date: _\r\n"
+                     "Content-Type: text/plain;\r\n"
+                     "\tcharset=utf-8\r\n"
+                     "Content-Transfer-Encoding: base64\r\n"
+                     "MIME-Version: 1.0\r\n"
+                     "Message-ID: _\r\n"
+                     "\r\n",
+                     Base64Body/binary, "\r\n">>,
+    {Diff1, Diff2} = isolate_difference(Mail2, ExpectedMail),
+    ?assertEqual(Diff1, Diff2),
+    ok.
+
+%% @doc This tests long mails with embeded UTF-8 characters, these will be "quoted-printable"
+%% encoded.
+%% @end
+utf8_mail_2(_Config) ->
+    %% The body strings in the following mail is made long so that the library used to make e-mail
+    %% formatted strings doesn't base64 encode them. (They will be transfer encoded with
+    %% "quoted-printable" instead.
+    TestMail = <<"{"
+                 "  \"mail\": {"
+                 "    \"from\": \"A B <a.b@c.se>\","
+                 "    \"to\": [\"z.u@d.se\", \"Y V <y.v@d.se>\"], \"cc\": [\"<q.r@d.se>\"],"
+                 "    \"extra-headers\": { \"Content-Type\": \"multipart/alternative\" },"
+                 "    \"subject\": \"Here we have a rather long subject containing åÅö\","
+                 "    \"body\": ["
+                 "      {"
+                 "        \"headers\": {"
+                 "          \"content-type\": \"text/plain\""
+                 "        },"
+                 "        \"body\": \"This text is not to be base64 encoded, it is long enough not"
+                 " to, Räksmörgås\""
+                 "      },"
+                 "      {"
+                 "        \"headers\": {"
+                 "          \"content-type\": \"text/html\""
+                 "        },"
+                 "        \"body\": \"<html><head><title></title></head><body>"
+                 "<b>Räksmörgås</b>"
+                 "</body></html>\""
+                 "      }"
+                 "    ]"
+                 "  },"
+                 "  \"smtp\": {"
+                 "    \"relay\": \"smtp.nowhere.test\", \"port\": 25,"
+                 "    \"username\": \"nobody\", \"password\": \"secret\""
+                 "  },"
+                 "  \"error\": {"
+                 "    \"to\": \"<admin@c.se>\","
+                 "    \"subject\": \"This is a subject\","
+                 "    \"body\": \"This is a message\""
+                 "  }"
+                 "}"/utf8>>,
+    {ok, {event, {_From, _To, Mail}, _SMTP, _ERROR}} = queuemailerl_event:parse(TestMail),
+
+    Mail2 = clean_up_mail(Mail),
+
+    ExpectedMail = <<"From: A B <a.b@c.se>\r\n"
+                     "To: z.u@d.se, Y V <y.v@d.se>\r\n"
+                     "Cc: q.r@d.se\r\n"
+                     "Subject: =?UTF-8?Q?Here=20we=20have=20a=20rather=20"
+                     "long=20subject=20contai?=\r\n =?UTF-8?Q?ning=20=C3=A5=C3=85=C3=B6?=\r\n"
+                     "Date: _\r\n"
+                     "Content-Type: multipart/alternative;\r\n"
+                     "\tboundary=\"_1_\"\r\n"
+                     "MIME-Version: 1.0\r\n"
+                     "Message-ID: _\r\n"
+                     "\r\n"
+                     "\r\n"
+                     "--_1_\r\n"
+                     "Content-Type: text/plain;\r\n"
+                     "\tcharset=utf-8\r\n"
+                     "Content-Disposition: inline\r\n"
+                     "Content-Transfer-Encoding: quoted-printable\r\n"
+                     "\r\n"
+                     "This text is not to be base64 encoded, it is long enough not to, =\r\n"
+                     "R=C3=A4ksm=C3=B6rg=C3=A5s\r\n"
+                     "--_1_\r\n"
+                     "Content-Type: text/html;\r\n"
+                     "\tcharset=utf-8\r\n"
+                     "Content-Disposition: inline\r\n"
+                     "Content-Transfer-Encoding: quoted-printable\r\n"
+                     "\r\n"
+                     "<html><head><title></title></head><body><b>R=C3=A4ksm=C3=B6rg=C3=A5s</b>"
+                     "</b=\r\nody></html>\r\n"
+                     "--_1_--\r\n"/utf8>>,
+    {Diff1, Diff2} = isolate_difference(Mail2, ExpectedMail),
+    ?assertEqual(Diff1, Diff2),
     ok.
 
 parts_mail_1(_Config) ->
