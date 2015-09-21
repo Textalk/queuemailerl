@@ -46,8 +46,36 @@ error reporting email address. It is formatted as a JSON object on the form:
            "body": "The message to be sent in the event of error"}}
 ```
 
-`"from"` is mandatory as is everything in `"error"`. Everything else is
-optional.
+Required fields:
+
+ - `"mail/from"`
+ - At least one of `"mail/to"`, `"mail/cc"` or `"mail/bcc"`
+ - `"mail/body"`
+ - `"smtp/relay"`
+ - `"smtp/port"`
+ - `"error/to"`
+ - `"error/subject"`
+ - `"error/body"`
+
+All other fields are optional.
+
+`"body"` in `"mail"` can optionally be a list of parts of the folloming format:
+
+```JSON
+{"headers": {"content-type": "text/plain",
+             "content-encoding": "base64",
+             "content-filename": "file.txt",
+             "content-disposition": "attchement"},
+ "body": "..."
+}
+```
+
+All fields except `"body"` is optional in a body part declaration.
+
+Where all the headers are optional and the body can be either a string or, if
+the `"content-type"` is a multipart-type, a list of the same structure. In the
+list case the body is made up of parts. This makes it possible to create a
+recursively defined tree of multipart parts and non-multipart bodies as leaves.
 
 Error handling
 --------------
